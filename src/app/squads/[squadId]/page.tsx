@@ -1,0 +1,229 @@
+'use client';
+
+import { use, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getSquad, getPlayers, createPlayer, deactivatePlayer, getSessions, createSession } from '@/lib/apiClient';
+import { useRouter } from 'next/navigation';
+import { PlusCircle, ChevronRight, UserMinus, Calendar } from 'lucide-react';
+import toast from 'react-hot-toast';
+import type { BillingMode, CourtSplitMode, ShuttlePricingMode } from '@/types';
+
+interface Props { params: Promise<{ squadId: string }> }
+
+export default function SquadDetailPage({ params }: Props) {
+  const { squadId } = use(params);
+  const router = useRouter();
+  const qc = useQueryClient();
+  const [tab, setTab] = useState<'sessions' | 'players'>('sessions');
+  const [showPlayerForm, setShowPlayerForm] = useState(false);
+  const [playerName, setPlayerName] = useState('');
+  const [showSessionForm, setShowSessionForm] = useState(false);
+
+  // Session form state
+  const [sessionTitle, setSessionTitle] = useState('');
+  const [billingMode, setBillingMode] = useState<BillingMode>('equal_split');
+  const [courtMode, setCourtMode] = useState<CourtSplitMode>('equal');
+  const [shuttleMode, setShuttleMode] = useState<ShuttlePricingMode>('per_shuttle');
+  const [shuttlePrice, setShuttlePrice] = useState('');
+  const [tubPrice, setTubPrice] = useState('');
+  const [shuttlesPerTub, setShuttlesPerTub] = useState('12');
+  const [courtTotal, setCourtTotal] = useState('');
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
+
+  const { data: squad } = useQuery({ queryKey: ['squad', squadId], queryFn: () => getSquad(squadId) });
+  const { data: players = [] } = useQuery({ queryKey: ['players', squadId], queryFn: () => getPlayers(squadId) });
+  const { data: sessions = [] } = useQuery({ queryKey: ['sessions', squadId], queryFn: () => getSessions(squadId) });
+
+  const addPlayerMut = useMutation({
+    mutationFn: () => createPlayer(squadId, { name: playerName }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['players', squadId] }); setPlayerName(''); setShowPlayerForm(false); toast.success('เพิ่มผู้เล่นแล้ว'); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const deactivateMut = useMutation({
+    mutationFn: (pid: string) => deactivatePlayer(squadId, pid),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['players', squadId] }); toast.success('นำผู้เล่นออกแล้ว'); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const createSessionMut = useMutation({
+    mutationFn: () => createSession(squadId, {
+      title: sessionTitle || undefined,
+      billing_mode: billingMode,
+      court_split_mode: courtMode,
+      shuttle_pricing_mode: shuttleMode,
+      shuttle_price_per_item: shuttleMode === 'per_shuttle' ? Number(shuttlePrice) : undefined,
+      shuttle_price_per_tube: shuttleMode === 'per_tube' ? Number(tubPrice) : undefined,
+      shuttles_per_tube: shuttleMode === 'per_tube' ? Number(shuttlesPerTub) : undefined,
+      court_total: courtTotal ? Number(courtTotal) : undefined,
+      player_ids: selectedPlayerIds,
+    }),
+    onSuccess: (session) => {
+      qc.invalidateQueries({ queryKey: ['sessions', squadId] });
+      toast.success('สร้าง session แล้ว!');
+      router.push(`/squads/${squadId}/sessions/${session.id}`);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const togglePlayer = (id: string) => {
+    setSelectedPlayerIds((prev) => prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]);
+  };
+
+  const activePlayers = players.filter((p) => p.is_active);
+
+  return (
+    <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-800">{squad?.name ?? '...'}</h1>
+        <p className="text-sm text-gray-400">
+          {squad?.default_billing_mode === 'equal_split' ? 'หารเท่ากัน' : 'หารตามเกมส์'} · {squad?.default_court_split_mode === 'equal' ? 'ค่าสนามหารเท่ากัน' : 'ค่าสนามหารตามเกมส์'}
+        </p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+        {(['sessions', 'players'] as const).map((t) => (
+          <button key={t} onClick={() => setTab(t)} className={`flex-1 rounded-lg py-2 text-sm font-semibold transition ${tab === t ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+            {t === 'sessions' ? '🏸 Session' : '👤 ผู้เล่น'}
+          </button>
+        ))}
+      </div>
+
+      {/* Sessions Tab */}
+      {tab === 'sessions' && (
+        <div className="space-y-3">
+          <button onClick={() => setShowSessionForm(true)} className="w-full flex items-center justify-center gap-2 bg-green-600 text-white rounded-xl py-3 font-semibold hover:bg-green-700 transition text-sm">
+            <PlusCircle className="w-4 h-4" /> สร้าง Session ใหม่
+          </button>
+
+          {showSessionForm && (
+            <div className="bg-white rounded-2xl shadow p-6 space-y-4">
+              <h3 className="font-bold text-gray-800">ตั้งค่า Session</h3>
+              <FormField label="ชื่อ Session (ไม่บังคับ)">
+                <input value={sessionTitle} onChange={(e) => setSessionTitle(e.target.value)} placeholder="เช่น ก๊วนวันศุกร์ 9 พ.ค." className={inputCls} maxLength={100} />
+              </FormField>
+              <FormField label="โหมดการคิดเงิน">
+                <select value={billingMode} onChange={(e) => setBillingMode(e.target.value as BillingMode)} className={inputCls}>
+                  <option value="equal_split">หารเท่ากัน</option>
+                  <option value="per_game_split">หารตามเกมส์</option>
+                </select>
+              </FormField>
+              <FormField label="โหมดค่าสนาม">
+                <select value={courtMode} onChange={(e) => setCourtMode(e.target.value as CourtSplitMode)} className={inputCls}>
+                  <option value="equal">หารเท่ากัน</option>
+                  <option value="per_game">หารตามเกมส์</option>
+                </select>
+              </FormField>
+              <FormField label="ค่าสนาม (บาท) — ใส่ได้ตอนปิดก็ได้">
+                <input type="number" value={courtTotal} onChange={(e) => setCourtTotal(e.target.value)} placeholder="0" className={inputCls} min="0" />
+              </FormField>
+              <FormField label="การคิดค่าลูก">
+                <select value={shuttleMode} onChange={(e) => setShuttleMode(e.target.value as ShuttlePricingMode)} className={inputCls}>
+                  <option value="per_shuttle">ราคา / ลูก</option>
+                  <option value="per_tube">ราคา / หลอด</option>
+                </select>
+              </FormField>
+              {shuttleMode === 'per_shuttle' && (
+                <FormField label="ราคาต่อลูก (บาท)">
+                  <input type="number" value={shuttlePrice} onChange={(e) => setShuttlePrice(e.target.value)} placeholder="เช่น 25" className={inputCls} min="0" />
+                </FormField>
+              )}
+              {shuttleMode === 'per_tube' && (
+                <>
+                  <FormField label="ราคาต่อหลอด (บาท)">
+                    <input type="number" value={tubPrice} onChange={(e) => setTubPrice(e.target.value)} placeholder="เช่น 300" className={inputCls} min="0" />
+                  </FormField>
+                  <FormField label="จำนวนลูกต่อหลอด">
+                    <input type="number" value={shuttlesPerTub} onChange={(e) => setShuttlesPerTub(e.target.value)} placeholder="12" className={inputCls} min="1" />
+                  </FormField>
+                </>
+              )}
+              <div>
+                <label className="text-sm text-gray-600 block mb-2">เลือกผู้เล่นที่มาวันนี้</label>
+                <div className="flex flex-wrap gap-2">
+                  {activePlayers.map((p) => (
+                    <button key={p.id} onClick={() => togglePlayer(p.id)}
+                      className={`px-3 py-1 rounded-full text-sm border transition ${selectedPlayerIds.includes(p.id) ? 'bg-green-600 text-white border-green-600' : 'border-gray-300 text-gray-600 hover:border-green-400'}`}>
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+                {activePlayers.length === 0 && <p className="text-xs text-gray-400">ยังไม่มีผู้เล่น เพิ่มที่แท็บ "ผู้เล่น" ก่อน</p>}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => createSessionMut.mutate()} disabled={createSessionMut.isPending} className="flex-1 bg-green-600 text-white rounded-xl py-2 font-semibold hover:bg-green-700 disabled:opacity-50 transition text-sm">
+                  {createSessionMut.isPending ? 'กำลังสร้าง...' : 'เริ่ม Session'}
+                </button>
+                <button onClick={() => setShowSessionForm(false)} className="flex-1 border border-gray-300 rounded-xl py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
+              </div>
+            </div>
+          )}
+
+          {sessions.length === 0 && !showSessionForm && (
+            <div className="text-center py-12 text-gray-400">
+              <Calendar className="w-10 h-10 mx-auto opacity-30 mb-2" />
+              <p>ยังไม่มี session</p>
+            </div>
+          )}
+
+          {sessions.map((s) => (
+            <button key={s.id} onClick={() => router.push(`/squads/${squadId}/sessions/${s.id}`)}
+              className="w-full bg-white rounded-2xl shadow px-5 py-4 flex items-center justify-between hover:shadow-md transition text-left">
+              <div>
+                <div className="font-semibold text-gray-800">{s.title ?? new Date(s.created_at).toLocaleDateString('th-TH')}</div>
+                <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${s.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {s.status === 'active' ? 'กำลังเล่น' : 'จบแล้ว'}
+                  </span>
+                  {s.status === 'closed' && s.session_players && (
+                    <span>{s.session_players.length} คน</span>
+                  )}
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-gray-300" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Players Tab */}
+      {tab === 'players' && (
+        <div className="space-y-3">
+          <button onClick={() => setShowPlayerForm(true)} className="w-full flex items-center justify-center gap-2 border border-green-600 text-green-700 rounded-xl py-3 font-semibold hover:bg-green-50 transition text-sm">
+            <PlusCircle className="w-4 h-4" /> เพิ่มผู้เล่น
+          </button>
+          {showPlayerForm && (
+            <div className="bg-white rounded-2xl shadow p-4 flex gap-2">
+              <input value={playerName} onChange={(e) => setPlayerName(e.target.value)} placeholder="ชื่อผู้เล่น" className={`flex-1 ${inputCls}`} maxLength={100} />
+              <button onClick={() => addPlayerMut.mutate()} disabled={!playerName.trim() || addPlayerMut.isPending} className="bg-green-600 text-white rounded-lg px-4 text-sm font-semibold disabled:opacity-50 hover:bg-green-700 transition">เพิ่ม</button>
+              <button onClick={() => { setShowPlayerForm(false); setPlayerName(''); }} className="text-gray-400 hover:text-gray-600 px-2 text-sm">ยกเลิก</button>
+            </div>
+          )}
+          {activePlayers.map((p) => (
+            <div key={p.id} className="bg-white rounded-2xl shadow px-5 py-3 flex items-center justify-between">
+              <span className="font-medium text-gray-700">{p.name}</span>
+              <button onClick={() => { if (confirm(`นำ ${p.name} ออกจากก๊วน?`)) deactivateMut.mutate(p.id); }} className="text-gray-300 hover:text-red-400 transition">
+                <UserMinus className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+          {activePlayers.length === 0 && !showPlayerForm && (
+            <div className="text-center py-12 text-gray-400">ยังไม่มีผู้เล่น</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500';
+
+function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="text-sm text-gray-600 block mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
