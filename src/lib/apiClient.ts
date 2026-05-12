@@ -4,6 +4,7 @@ import type {
   Squad,
   Player,
   Session,
+  SessionPlayer,
   Game,
   Receipt,
   MonthlySummary,
@@ -86,6 +87,10 @@ export const closeSession = (
     .patch<Session>(`/squads/${squadId}/sessions/${sessionId}/close`, data)
     .then((r) => r.data);
 
+// ── Session Players ───────────────────────────────────────
+export const addSessionPlayer = (sessionId: string, playerId: string) =>
+  api.post<SessionPlayer>(`/sessions/${sessionId}/players`, { player_id: playerId }).then((r) => r.data);
+
 // ── Games ─────────────────────────────────────────────────
 export const createGame = (
   sessionId: string,
@@ -101,6 +106,12 @@ export const generateReceipts = (sessionId: string) =>
 
 export const getReceipts = (sessionId: string) =>
   api.get<Receipt[]>(`/sessions/${sessionId}/receipts`).then((r) => r.data);
+
+export const markReceiptPaid = (sessionId: string, receiptId: string) =>
+  api.patch<Receipt>(`/sessions/${sessionId}/receipts/${receiptId}/mark-paid`).then((r) => r.data);
+
+export const markReceiptPending = (sessionId: string, receiptId: string) =>
+  api.patch<Receipt>(`/sessions/${sessionId}/receipts/${receiptId}/mark-pending`).then((r) => r.data);
 
 // ── Reports ───────────────────────────────────────────────
 export const getMonthlySummary = (month: string) =>

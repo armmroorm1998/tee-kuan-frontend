@@ -3,10 +3,13 @@
 import { useState, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { updateMe } from '@/lib/apiClient';
+import { LoadingPage } from '@/components/LoadingOverlay';
 import { useOwner } from '@/context/OwnerContext';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import type { PromptPayType } from '@/types';
+import { CustomSelect } from '@/components/CustomSelect';
+import { ChevronLeft } from 'lucide-react';
 
 export default function SettingsPage() {
   const { owner, isIdentified, isLoading: ownerLoading, refresh } = useOwner();
@@ -16,6 +19,10 @@ export default function SettingsPage() {
   const [promptpayType, setPromptpayType] = useState<PromptPayType>('mobile');
   const [promptpayValue, setPromptpayValue] = useState('');
   const [promptpayInput, setPromptpayInput] = useState('');
+
+  useEffect(() => {
+    if (!ownerLoading && !isIdentified) router.replace('/');
+  }, [ownerLoading, isIdentified, router]);
 
   useEffect(() => {
     if (owner) {
@@ -38,12 +45,20 @@ export default function SettingsPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  if (ownerLoading) return <div className="flex justify-center mt-20 text-gray-400">กำลังโหลด...</div>;
-  if (!isIdentified) { router.replace('/'); return null; }
+  if (ownerLoading) return <LoadingPage />;
+  if (!isIdentified) return null;
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">ตั้งค่า</h1>
+    <div className="max-w-lg mx-auto flex flex-col min-h-dvh">
+      {/* Header */}
+      <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100 bg-white sticky top-0 z-10">
+        <button onClick={() => router.push('/')} className="p-1 -ml-1 text-gray-500 hover:text-gray-800 transition">
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        <h1 className="font-bold text-gray-800 text-lg">ตั้งค่า</h1>
+      </div>
+
+      <div className="flex-1 px-4 py-6 space-y-6">
 
       <div className="bg-white rounded-2xl shadow p-6 space-y-5">
         <div>
@@ -71,10 +86,14 @@ export default function SettingsPage() {
 
           <div>
             <label className="text-sm text-gray-600 block mb-1">ประเภท</label>
-            <select value={promptpayType} onChange={(e) => setPromptpayType(e.target.value as PromptPayType)} className={inputCls}>
-              <option value="mobile">เบอร์มือถือ (10 หลัก)</option>
-              <option value="national_id">เลขบัตรประชาชน (13 หลัก)</option>
-            </select>
+            <CustomSelect
+              value={promptpayType}
+              onChange={(v) => setPromptpayType(v as PromptPayType)}
+              options={[
+                { value: 'mobile', label: 'เบอร์มือถือ (10 หลัก)' },
+                { value: 'national_id', label: 'เลขบัตรประชาชน (13 หลัก)' },
+              ]}
+            />
           </div>
 
           <div>
@@ -113,8 +132,9 @@ export default function SettingsPage() {
           💡 ถ้าต้องการใช้งานบนเครื่องอื่น ให้ใช้ Recovery Key ที่ได้รับตอนสมัคร
         </p>
       </div>
+      </div>
     </div>
   );
 }
 
-const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500';
+const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-green-500';

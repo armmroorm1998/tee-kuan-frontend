@@ -20,7 +20,7 @@ export function Navbar() {
   };
 
   return (
-    <nav className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+    <nav className="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between">
       <Link href="/" className="flex items-center gap-2 font-bold text-lg text-green-700">
         <Feather className="w-5 h-5" />
         ตีก๊วน

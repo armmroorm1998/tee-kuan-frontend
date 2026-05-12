@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getMonthlySummary } from '@/lib/apiClient';
+import { LoadingPage } from '@/components/LoadingOverlay';
 import { useOwner } from '@/context/OwnerContext';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -16,14 +17,18 @@ export default function ReportsPage() {
   const router = useRouter();
   const [month, setMonth] = useState(toMonthStr(new Date()));
 
+  useEffect(() => {
+    if (!ownerLoading && !isIdentified) router.replace('/');
+  }, [ownerLoading, isIdentified, router]);
+
   const { data, isLoading } = useQuery({
     queryKey: ['monthly', month],
     queryFn: () => getMonthlySummary(month),
     enabled: isIdentified,
   });
 
-  if (ownerLoading) return <div className="flex justify-center mt-20 text-gray-400">กำลังโหลด...</div>;
-  if (!isIdentified) { router.replace('/'); return null; }
+  if (ownerLoading) return <LoadingPage />;
+  if (!isIdentified) return null;
 
   const changeMonth = (delta: number) => {
     const [y, m] = month.split('-').map(Number);
@@ -34,8 +39,16 @@ export default function ReportsPage() {
   const thMonth = new Date(month + '-01').toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">สรุปรายเดือน</h1>
+    <div className="max-w-lg mx-auto flex flex-col min-h-dvh">
+      {/* Header */}
+      <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100 bg-white sticky top-0 z-10">
+        <button onClick={() => router.push('/')} className="p-1 -ml-1 text-gray-500 hover:text-gray-800 transition">
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        <h1 className="font-bold text-gray-800 text-lg">สรุปรายเดือน</h1>
+      </div>
+
+      <div className="flex-1 px-4 py-6 space-y-6">
 
       {/* Month navigator */}
       <div className="flex items-center justify-between bg-white rounded-2xl shadow px-5 py-3">
@@ -48,7 +61,7 @@ export default function ReportsPage() {
         </button>
       </div>
 
-      {isLoading && <div className="text-center text-gray-400 py-8">กำลังโหลด...</div>}
+      {isLoading && <LoadingPage />}
 
       {data && (
         <>
@@ -84,6 +97,7 @@ export default function ReportsPage() {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }

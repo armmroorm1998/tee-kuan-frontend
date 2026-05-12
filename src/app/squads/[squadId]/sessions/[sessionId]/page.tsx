@@ -1,12 +1,67 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getSession, getGames, createGame, closeSession, generateReceipts, getReceipts, getPlayers } from '@/lib/apiClient';
+import { getSession, getGames, createPlayer, createGame, closeSession, generateReceipts, getReceipts, addSessionPlayer, markReceiptPaid, markReceiptPending } from '@/lib/apiClient';
+import { LoadingPage, LoadingOverlay } from '@/components/LoadingOverlay';
 import { useRouter } from 'next/navigation';
-import { PlusCircle } from 'lucide-react';
+import { ChevronLeft, PlusCircle, Shuffle, UserPlus, Share2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import type { Receipt } from '@/types';
+import type { Game, Receipt } from '@/types';
+
+function shuffleArray<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** Pick 4 players (prioritising those who sat out last game) and split into
+ *  2 teams of 2 minimising repeated within-team pairings. */
+function buildShuffledTeams(livePlayers: string[], games: Game[]): string[] | null {
+  if (livePlayers.length < 4) return null;
+
+  const lastGame = games[games.length - 1];
+  const lastGameIds = new Set(lastGame?.game_players.map((gp) => gp.player_id) ?? []);
+
+  const sittingOut = shuffleArray(livePlayers.filter((id) => !lastGameIds.has(id)));
+  const playedLast = shuffleArray(livePlayers.filter((id) => lastGameIds.has(id)));
+
+  const selected =
+    sittingOut.length >= 4
+      ? sittingOut.slice(0, 4)
+      : [...sittingOut, ...playedLast.slice(0, 4 - sittingOut.length)];
+
+  // Build pairing-frequency map from all game history
+  const freq = new Map<string, number>();
+  for (const g of games) {
+    const ids = g.game_players.map((gp) => gp.player_id);
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const key = [ids[i], ids[j]].sort().join('|');
+        freq.set(key, (freq.get(key) ?? 0) + 1);
+      }
+    }
+  }
+
+  const pairScore = (x: string, y: string) => freq.get([x, y].sort().join('|')) ?? 0;
+  const [a, b, c, d] = selected;
+
+  const splits: [string, string, string, string][] = [
+    [a, b, c, d],
+    [a, c, b, d],
+    [a, d, b, c],
+  ];
+
+  return splits.reduce((min, cur) =>
+    pairScore(cur[0], cur[1]) + pairScore(cur[2], cur[3]) <
+    pairScore(min[0], min[1]) + pairScore(min[2], min[3])
+      ? cur
+      : min,
+  );
+}
 
 interface Props { params: Promise<{ squadId: string; sessionId: string }> }
 
@@ -21,10 +76,20 @@ export default function SessionPage({ params }: Props) {
   const [shuttlesUsed, setShuttlesUsed] = useState('');
   const [courtTotalOverride, setCourtTotalOverride] = useState('');
   const [extraTotal, setExtraTotal] = useState('');
+  const leftKey = `left_players_${sessionId}`;
+  const [leftPlayerIds, setLeftPlayerIds] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(leftKey);
+      return stored ? new Set<string>(JSON.parse(stored)) : new Set<string>();
+    } catch {
+      return new Set<string>();
+    }
+  });
+  const [showAddPlayer, setShowAddPlayer] = useState(false);
+  const [newPlayerName, setNewPlayerName] = useState('');
 
   const { data: session } = useQuery({ queryKey: ['session', sessionId], queryFn: () => getSession(squadId, sessionId) });
   const { data: games = [] } = useQuery({ queryKey: ['games', sessionId], queryFn: () => getGames(sessionId) });
-  const { data: players = [] } = useQuery({ queryKey: ['players', squadId], queryFn: () => getPlayers(squadId) });
   const { data: receipts = [] } = useQuery({ queryKey: ['receipts', sessionId], queryFn: () => getReceipts(sessionId), enabled: session?.status === 'closed' });
 
   const addGameMut = useMutation({
@@ -52,14 +117,40 @@ export default function SessionPage({ params }: Props) {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const addPlayerMut = useMutation({
+    mutationFn: async (name: string) => {
+      const player = await createPlayer(squadId, { name: name.trim() });
+      await addSessionPlayer(sessionId, player.id);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['session', sessionId] });
+      qc.invalidateQueries({ queryKey: ['players', squadId] });
+      setNewPlayerName('');
+      toast.success('เพิ่มผู้เล่นแล้ว');
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const toggleLeft = (playerId: string) => {
+    setLeftPlayerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(playerId)) {
+        next.delete(playerId);
+      } else {
+        next.add(playerId);
+      }
+      localStorage.setItem(leftKey, JSON.stringify([...next]));
+      return next;
+    });
+  };
+
   const toggleGamePlayer = (id: string) => {
     setGamePlayerIds((prev) => prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]);
   };
 
   const sessionPlayers = session?.session_players ?? [];
-  const activePlayers = players.filter((p) => p.is_active);
 
-  if (!session) return <div className="flex justify-center mt-20 text-gray-400">กำลังโหลด...</div>;
+  if (!session) return <LoadingPage />;
 
   const isClosed = session.status === 'closed';
   const shuttlePriceLabel = session.shuttle_pricing_mode === 'per_shuttle'
@@ -67,27 +158,88 @@ export default function SessionPage({ params }: Props) {
     : `${session.shuttle_price_per_tube} บาท/หลอด (${session.shuttles_per_tube} ลูก/หลอด ≈ ${session.shuttles_per_tube ? (Number(session.shuttle_price_per_tube) / Number(session.shuttles_per_tube)).toFixed(2) : '-'} บาท/ลูก)`;
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">{session.title ?? 'Session'}</h1>
-          <p className="text-sm text-gray-400">{session.billing_mode === 'equal_split' ? 'หารเท่ากัน' : 'หารตามเกมส์'} · {shuttlePriceLabel}</p>
+    <div className="max-w-lg mx-auto flex flex-col min-h-[calc(100dvh-57px)]">
+      {(closeMut.isPending || generateReceiptsMut.isPending) && <LoadingOverlay label="กำลังปิด Session..." />}
+      {addGameMut.isPending && <LoadingOverlay label="กำลังบันทึกเกมส์..." />}
+      {addPlayerMut.isPending && <LoadingOverlay label="กำลังเพิ่มผู้เล่น..." />}
+      {/* Sticky header */}
+      <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100 bg-white sticky top-0 z-10">
+        <button onClick={() => router.push(`/squads/${squadId}`)} className="p-1 -ml-1 text-gray-500 hover:text-gray-800 transition">
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <h1 className="font-bold text-gray-800 text-lg leading-tight truncate">{session.title ?? 'Session'}</h1>
+          <p className="text-xs text-gray-400">{session.billing_mode === 'equal_split' ? 'หารเท่ากัน' : 'หารตามเกมส์'} · {shuttlePriceLabel}</p>
         </div>
-        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${isClosed ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'}`}>
+        <span className={`shrink-0 px-3 py-1 rounded-full text-xs font-semibold ${isClosed ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'}`}>
           {isClosed ? 'จบแล้ว' : 'กำลังเล่น'}
         </span>
       </div>
+      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
 
       {/* Players in this session */}
       <div className="bg-white rounded-2xl shadow px-5 py-4">
-        <h3 className="font-semibold text-gray-700 mb-3 text-sm">ผู้เล่นวันนี้ ({sessionPlayers.length} คน)</h3>
-        <div className="flex flex-wrap gap-2">
-          {sessionPlayers.map((sp) => (
-            <span key={sp.id} className="bg-green-50 text-green-700 border border-green-200 px-3 py-1 rounded-full text-sm">
-              {sp.player?.name ?? '?'}
-            </span>
-          ))}
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-gray-700 text-sm">ผู้เล่นวันนี้ ({sessionPlayers.length} คน)</h3>
+          {!isClosed && (
+            <button onClick={() => setShowAddPlayer((v) => !v)} className="flex items-center gap-1 text-green-600 text-sm font-semibold hover:text-green-800">
+              <UserPlus className="w-4 h-4" /> เพิ่มผู้เล่น
+            </button>
+          )}
+        </div>
+
+        {/* Add player panel */}
+        {showAddPlayer && (
+          <div className="mb-3 p-3 bg-gray-50 rounded-xl border border-gray-200 space-y-2">
+            <div className="flex gap-2">
+              <input
+                value={newPlayerName}
+                onChange={(e) => setNewPlayerName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && newPlayerName.trim()) addPlayerMut.mutate(newPlayerName); }}
+                placeholder="ชื่อผู้เล่น"
+                className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+                maxLength={100}
+                autoFocus
+              />
+              <button
+                onClick={() => addPlayerMut.mutate(newPlayerName)}
+                disabled={!newPlayerName.trim() || addPlayerMut.isPending}
+                className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-40 transition"
+              >
+                {addPlayerMut.isPending ? '...' : 'เพิ่ม'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Player rows */}
+        <div className="space-y-2">
+          {sessionPlayers.map((sp) => {
+            const isLeft = leftPlayerIds.has(sp.player_id);
+            return (
+              <div key={sp.id} className="flex items-center justify-between gap-2">
+                <span className={`text-sm font-medium ${isLeft ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+                  {sp.player?.name ?? '?'}
+                </span>
+                {!isClosed && (
+                  <div className="flex bg-gray-100 rounded-lg p-0.5 gap-0.5 shrink-0">
+                    <button
+                      onClick={() => isLeft && toggleLeft(sp.player_id)}
+                      className={`px-3 py-1 rounded-md text-xs font-semibold transition ${!isLeft ? 'bg-white shadow text-green-700' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                      Live
+                    </button>
+                    <button
+                      onClick={() => !isLeft && toggleLeft(sp.player_id)}
+                      className={`px-3 py-1 rounded-md text-xs font-semibold transition ${isLeft ? 'bg-white shadow text-gray-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                      กลับแล้ว
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -104,12 +256,27 @@ export default function SessionPage({ params }: Props) {
 
         {showGameForm && (
           <div className="bg-white rounded-2xl shadow p-4 space-y-3">
-            <h4 className="text-sm font-semibold text-gray-700">เกมส์ที่ {games.length + 1}</h4>
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-gray-700">เกมส์ที่ {games.length + 1}</h4>
+              <button
+                onClick={() => {
+                  const livePlayers = sessionPlayers
+                    .filter((sp) => !leftPlayerIds.has(sp.player_id))
+                    .map((sp) => sp.player_id);
+                  const result = buildShuffledTeams(livePlayers, games);
+                  if (!result) { toast.error('ผู้เล่น Live ไม่ถึง 4 คน'); return; }
+                  setGamePlayerIds(result);
+                }}
+                className="flex items-center gap-1 text-purple-600 text-sm font-semibold hover:text-purple-800 transition"
+              >
+                <Shuffle className="w-4 h-4" /> สุ่มทีม
+              </button>
+            </div>
             <input value={courtLabel} onChange={(e) => setCourtLabel(e.target.value)} placeholder="สนาม (เช่น A1) ไม่บังคับ" className={inputCls} maxLength={50} />
             <div>
               <p className="text-sm text-gray-600 mb-2">ผู้เล่นในเกมส์นี้</p>
               <div className="flex flex-wrap gap-2">
-                {sessionPlayers.map((sp) => (
+                {sessionPlayers.filter((sp) => !leftPlayerIds.has(sp.player_id)).map((sp) => (
                   <button key={sp.player_id} onClick={() => toggleGamePlayer(sp.player_id)}
                     className={`px-3 py-1 rounded-full text-sm border transition ${gamePlayerIds.includes(sp.player_id) ? 'bg-green-600 text-white border-green-600' : 'border-gray-300 text-gray-600'}`}>
                     {sp.player?.name ?? '?'}
@@ -117,8 +284,11 @@ export default function SessionPage({ params }: Props) {
                 ))}
               </div>
             </div>
+            {gamePlayerIds.length > 0 && gamePlayerIds.length !== 4 && (
+              <p className="text-xs text-amber-600">เลือกผู้เล่นให้ครบ 4 คน (เลือกแล้ว {gamePlayerIds.length} คน)</p>
+            )}
             <div className="flex gap-2">
-              <button onClick={() => addGameMut.mutate()} disabled={gamePlayerIds.length === 0 || addGameMut.isPending} className="flex-1 bg-green-600 text-white rounded-xl py-2 text-sm font-semibold disabled:opacity-50 hover:bg-green-700 transition">
+              <button onClick={() => addGameMut.mutate()} disabled={gamePlayerIds.length !== 4 || addGameMut.isPending} className="flex-1 bg-green-600 text-white rounded-xl py-2 text-sm font-semibold disabled:opacity-50 hover:bg-green-700 transition">
                 {addGameMut.isPending ? 'กำลังบันทึก...' : 'บันทึกเกมส์'}
               </button>
               <button onClick={() => { setShowGameForm(false); setGamePlayerIds([]); }} className="flex-1 border border-gray-300 rounded-xl py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
@@ -126,19 +296,31 @@ export default function SessionPage({ params }: Props) {
           </div>
         )}
 
-        {games.map((g) => (
-          <div key={g.id} className="bg-white rounded-2xl shadow px-5 py-3">
-            <div className="flex items-center justify-between mb-1">
-              <span className="font-medium text-gray-700 text-sm">เกมส์ {g.game_number}{g.court_label ? ` · ${g.court_label}` : ''}</span>
-              <span className="text-xs text-gray-400">{g.game_players?.length ?? 0} คน</span>
+        {games.map((g) => {
+          const players = g.game_players ?? [];
+          const teamA = players.slice(0, 2);
+          const teamB = players.slice(2, 4);
+          return (
+            <div key={g.id} className="bg-white rounded-2xl shadow px-5 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-medium text-gray-700 text-sm">เกมส์ {g.game_number}{g.court_label ? ` · ${g.court_label}` : ''}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 flex flex-col gap-1">
+                  {teamA.map((gp) => (
+                    <span key={gp.id} className="text-xs bg-blue-50 text-blue-700 border border-blue-100 px-3 py-1 rounded-lg text-center font-medium">{gp.player?.name ?? '?'}</span>
+                  ))}
+                </div>
+                <span className="text-xs font-bold text-gray-400 shrink-0">VS</span>
+                <div className="flex-1 flex flex-col gap-1">
+                  {teamB.map((gp) => (
+                    <span key={gp.id} className="text-xs bg-red-50 text-red-700 border border-red-100 px-3 py-1 rounded-lg text-center font-medium">{gp.player?.name ?? '?'}</span>
+                  ))}
+                </div>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-1">
-              {g.game_players?.map((gp) => (
-                <span key={gp.id} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{gp.player?.name ?? '?'}</span>
-              ))}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Close session */}
@@ -165,7 +347,7 @@ export default function SessionPage({ params }: Props) {
               </div>
               <div className="flex gap-2">
                 <button onClick={() => closeMut.mutate()} disabled={closeMut.isPending || generateReceiptsMut.isPending} className="flex-1 bg-red-500 text-white rounded-xl py-2 font-semibold text-sm hover:bg-red-600 disabled:opacity-50 transition">
-                  {closeMut.isPending || generateReceiptsMut.isPending ? 'กำลังคำนวณ...' : 'ปิดและคิดเงิน'}
+                  {closeMut.isPending || generateReceiptsMut.isPending ? '...' : 'ปิดและคิดเงิน'}
                 </button>
                 <button onClick={() => setShowCloseForm(false)} className="flex-1 border border-gray-300 rounded-xl py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
               </div>
@@ -176,22 +358,66 @@ export default function SessionPage({ params }: Props) {
 
       {/* Receipts */}
       {isClosed && receipts.length > 0 && (
-        <ReceiptSection receipts={receipts} sessionId={sessionId} />
+        <ReceiptSection receipts={receipts} sessionId={sessionId} games={games} />
       )}
+      </div>
     </div>
   );
 }
 
-function ReceiptSection({ receipts, sessionId }: { receipts: Receipt[]; sessionId: string }) {
+async function shareReceipt(playerName: string, amount: number, base64: string | null) {
+  if (!navigator.share) return;
+  try {
+    if (base64 && navigator.canShare?.({ files: [new File([], '')] })) {
+      const res = await fetch(base64);
+      const blob = await res.blob();
+      const file = new File([blob], `promptpay-${playerName}.png`, { type: 'image/png' });
+      await navigator.share({
+        title: `PromptPay สำหรับ ${playerName}`,
+        text: `โอน ฿${amount.toFixed(2)} มาให้ด้วยนะ 🏸`,
+        files: [file],
+      });
+    } else {
+      await navigator.share({
+        text: `${playerName} โอน ฿${amount.toFixed(2)} ผ่าน PromptPay ด้วยนะ 🙏`,
+      });
+    }
+  } catch {
+    // user cancelled
+  }
+}
+
+function ReceiptSection({ receipts, sessionId, games }: { receipts: Receipt[]; sessionId: string; games: Game[] }) {
   const qc = useQueryClient();
+
+  const gamesPlayedMap = useMemo(() => {
+    const map = new Map<string, number>();
+    games.forEach((g) => {
+      g.game_players.forEach((gp) => {
+        map.set(gp.player_id, (map.get(gp.player_id) ?? 0) + 1);
+      });
+    });
+    return map;
+  }, [games]);
   const regenMut = useMutation({
     mutationFn: () => generateReceipts(sessionId),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['receipts', sessionId] }); toast.success('ออก QR ใหม่แล้ว'); },
     onError: (e: any) => toast.error(e.message),
   });
 
+  const togglePaidMut = useMutation({
+    mutationFn: (r: Receipt) =>
+      r.payment_status === 'paid'
+        ? markReceiptPending(sessionId, r.id)
+        : markReceiptPaid(sessionId, r.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['receipts', sessionId] }),
+    onError: (e: any) => toast.error(e.message),
+  });
+
   return (
     <div className="space-y-4">
+      {regenMut.isPending && <LoadingOverlay label="กำลังออก QR..." />}
+      {togglePaidMut.isPending && <LoadingOverlay label="กำลังอัปเดต..." />}
       <div className="flex items-center justify-between">
         <h3 className="font-bold text-gray-800 text-lg">🧾 ใบเสร็จ</h3>
         <button onClick={() => regenMut.mutate()} disabled={regenMut.isPending} className="text-xs text-gray-400 hover:text-green-600">
@@ -203,16 +429,29 @@ function ReceiptSection({ receipts, sessionId }: { receipts: Receipt[]; sessionI
           <div className="flex items-center justify-between">
             <div>
               <div className="font-semibold text-gray-800">{r.player?.name ?? '?'}</div>
+              <div className="text-xs text-gray-400 mt-0.5">{gamesPlayedMap.get(r.player_id) ?? 0} เกมส์</div>
               <div className="text-2xl font-bold text-green-700 mt-0.5">฿{Number(r.amount_due).toFixed(2)}</div>
             </div>
-            <span className={`text-xs px-2 py-1 rounded-full font-medium ${r.payment_status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-              {r.payment_status === 'paid' ? 'จ่ายแล้ว' : 'รอโอน'}
-            </span>
+            <button
+              onClick={() => togglePaidMut.mutate(r)}
+              disabled={togglePaidMut.isPending}
+              className={`text-xs px-3 py-1.5 rounded-full font-semibold transition ${r.payment_status === 'paid' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'}`}
+            >
+              {r.payment_status === 'paid' ? '✓ จ่ายแล้ว' : 'รอโอน'}
+            </button>
           </div>
           {r.qr_image_base64 && (
             <div className="flex flex-col items-center gap-2">
               <img src={r.qr_image_base64} alt={`QR PromptPay ${r.player?.name}`} className="w-40 h-40 rounded-xl border" />
               <p className="text-xs text-gray-400">สแกน PromptPay โอน ฿{Number(r.amount_due).toFixed(2)}</p>
+              {typeof navigator !== 'undefined' && !!navigator.share && (
+                <button
+                  onClick={() => shareReceipt(r.player?.name ?? '?', Number(r.amount_due), r.qr_image_base64)}
+                  className="flex items-center gap-1.5 text-sm text-green-600 font-semibold hover:text-green-800 transition"
+                >
+                  <Share2 className="w-4 h-4" /> แชร์ให้ผู้เล่น
+                </button>
+              )}
             </div>
           )}
           {!r.qr_image_base64 && (
@@ -224,4 +463,4 @@ function ReceiptSection({ receipts, sessionId }: { receipts: Receipt[]; sessionI
   );
 }
 
-const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500';
+const inputCls = 'w-full border border-gray-300 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white';

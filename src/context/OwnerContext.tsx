@@ -40,6 +40,7 @@ export function OwnerProvider({ children }: { children: ReactNode }) {
   const clear = useCallback(() => setOwner(null), []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
   }, [refresh]);
 
