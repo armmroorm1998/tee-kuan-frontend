@@ -6,7 +6,7 @@ import { bootstrap, recoverOwner, logout } from '@/lib/apiClient';
 import { LoadingPage, LoadingOverlay } from '@/components/LoadingOverlay';
 import { useOwner } from '@/context/OwnerContext';
 import toast from 'react-hot-toast';
-import { ChevronRight, BarChart2, Settings, LogOut, Feather } from 'lucide-react';
+import { ChevronRight, BarChart2, Settings, LogOut, Feather, Copy, Check } from 'lucide-react';
 
 const inputCls = 'w-full border border-gray-300 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-green-500';
 
@@ -18,6 +18,7 @@ export default function HomePage() {
   const [recoveryKey, setRecoveryKey] = useState('');
   const [recoveryKeyShown, setRecoveryKeyShown] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const handleBootstrap = async () => {
     setSubmitting(true);
@@ -46,6 +47,33 @@ export default function HomePage() {
   };
 
   if (isLoading) return <LoadingPage />;
+
+  // ── Recovery key shown (must be before owner check) ───
+  if (recoveryKeyShown) {
+    return (
+      <div className="max-w-md mx-auto min-h-dvh flex items-center px-4">
+        <div className="w-full bg-white rounded-2xl shadow p-8 text-center space-y-4">
+          <div className="text-4xl">🏸</div>
+          <h2 className="text-xl font-bold text-gray-800">บันทึก Recovery Key ไว้ด้วยนะ!</h2>
+          <p className="text-sm text-gray-500">ถ้าเปลี่ยนเครื่องหรือเบราว์เซอร์ ใช้ key นี้เพื่อดึงข้อมูลก๊วนคืน</p>
+          <div className="bg-amber-50 border border-amber-300 rounded-xl px-6 py-4 font-mono text-lg font-bold tracking-widest text-amber-800 break-all">{recoveryKeyShown}</div>
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(recoveryKeyShown);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            }}
+            className="w-full flex items-center justify-center gap-2 border border-amber-300 text-amber-700 rounded-xl py-2.5 font-semibold hover:bg-amber-50 transition"
+          >
+            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            {copied ? 'คัดลอกแล้ว!' : 'คัดลอก Recovery Key'}
+          </button>
+          <p className="text-xs text-red-500">⚠️ key นี้จะแสดงครั้งเดียวเท่านั้น กรุณาจดไว้ก่อน</p>
+          <button onClick={() => setRecoveryKeyShown('')} className="w-full bg-green-600 text-white rounded-xl py-3 font-semibold hover:bg-green-700 transition">จดแล้ว เข้าใช้งานเลย →</button>
+        </div>
+      </div>
+    );
+  }
 
   // ── Dashboard (logged in) ──────────────────────────────
   if (owner) {
@@ -120,22 +148,6 @@ export default function HomePage() {
           >
             <LogOut className="w-4 h-4" /> ออกจากระบบ
           </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Recovery key shown ─────────────────────────────────
-  if (recoveryKeyShown) {
-    return (
-      <div className="max-w-md mx-auto min-h-dvh flex items-center px-4">
-        <div className="w-full bg-white rounded-2xl shadow p-8 text-center space-y-4">
-          <div className="text-4xl">🏸</div>
-          <h2 className="text-xl font-bold text-gray-800">บันทึก Recovery Key ไว้ด้วยนะ!</h2>
-          <p className="text-sm text-gray-500">ถ้าเปลี่ยนเครื่องหรือเบราว์เซอร์ ใช้ key นี้เพื่อดึงข้อมูลก๊วนคืน</p>
-          <div className="bg-amber-50 border border-amber-300 rounded-xl px-6 py-4 font-mono text-lg font-bold tracking-widest text-amber-800 break-all">{recoveryKeyShown}</div>
-          <p className="text-xs text-red-500">⚠️ key นี้จะแสดงครั้งเดียวเท่านั้น กรุณาจดไว้ก่อน</p>
-          <button onClick={() => setRecoveryKeyShown('')} className="w-full bg-green-600 text-white rounded-xl py-3 font-semibold hover:bg-green-700 transition">จดแล้ว เข้าใช้งานเลย →</button>
         </div>
       </div>
     );

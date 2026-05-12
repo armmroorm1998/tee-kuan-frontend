@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSquad, createPlayer, createSession } from '@/lib/apiClient';
+import { useOwner } from '@/context/OwnerContext';
+import toast from 'react-hot-toast';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { ChevronLeft, X } from 'lucide-react';
-import toast from 'react-hot-toast';
 import type { BillingMode, CourtSplitMode, ShuttlePricingMode } from '@/types';
 import { CustomSelect } from '@/components/CustomSelect';
 
@@ -13,7 +14,15 @@ const inputCls = 'w-full border border-gray-300 rounded-xl px-4 py-3 text-lg foc
 
 export default function NewSquadPage() {
   const router = useRouter();
+  const { owner, isIdentified, isLoading: ownerLoading } = useOwner();
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!ownerLoading && isIdentified && !owner?.promptpay_type) {
+      toast.error('กรุณาตั้งค่า PromptPay ก่อนสร้างก๊วน');
+      router.replace('/settings');
+    }
+  }, [ownerLoading, isIdentified, owner, router]);
 
   const [squadName, setSquadName] = useState('');
   const [players, setPlayers] = useState<string[]>([]);

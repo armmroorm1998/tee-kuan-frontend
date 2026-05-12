@@ -7,9 +7,10 @@ import { useOwner } from '@/context/OwnerContext';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Users, Plus } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function SquadsPage() {
-  const { isIdentified, isLoading: ownerLoading } = useOwner();
+  const { owner, isIdentified, isLoading: ownerLoading } = useOwner();
   const router = useRouter();
 
   useEffect(() => {
@@ -70,7 +71,14 @@ export default function SquadsPage() {
       <div className="fixed bottom-0 left-0 right-0 px-4 py-4 bg-white border-t border-gray-100">
         <div className="max-w-lg mx-auto">
           <button
-            onClick={() => router.push('/squads/new')}
+            onClick={() => {
+              if (!owner?.promptpay_type) {
+                toast.error('กรุณาตั้งค่า PromptPay ก่อนสร้างก๊วน');
+                router.push('/settings');
+                return;
+              }
+              router.push('/squads/new');
+            }}
             className="w-full bg-green-600 text-white rounded-2xl py-4 font-bold text-lg hover:bg-green-700 transition flex items-center justify-center gap-2"
           >
             <Plus className="w-5 h-5" /> สร้างก๊วนใหม่
