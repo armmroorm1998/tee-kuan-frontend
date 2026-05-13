@@ -24,10 +24,8 @@ const OwnerContext = createContext<OwnerContextValue | null>(null);
 const SESSION_FLAG = 'hasOwner';
 
 export function OwnerProvider({ children }: { children: ReactNode }) {
-  const hasFlag =
-    typeof window !== 'undefined' && !!localStorage.getItem(SESSION_FLAG);
   const [owner, setOwner] = useState<Owner | null>(null);
-  const [isLoading, setIsLoading] = useState(hasFlag);
+  const [isLoading, setIsLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -49,9 +47,8 @@ export function OwnerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // Only call /me if a previous session flag exists
+    // Only call /me if a previous session flag exists (client-only, after hydration)
     if (!localStorage.getItem(SESSION_FLAG)) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
   }, [refresh]);
 
