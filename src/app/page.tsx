@@ -175,7 +175,16 @@ export default function HomePage() {
       <div className="text-center space-y-3">
         <div className="text-6xl">🏸</div>
         <h1 className="text-3xl font-bold text-gray-800">ตีก๊วน</h1>
-        <p className="text-gray-500 text-sm">จัดการก๊วนแบดมินตัน คิดเงิน ออกใบเสร็จ และ QR PromptPay รายคน</p>
+        <p className="text-gray-700 font-medium text-base leading-relaxed">
+          ช่วยจัดการก๊วนแบดมินตันตั้งแต่ต้นจนจบ
+        </p>
+        <div className="flex flex-wrap justify-center gap-2 text-xs text-gray-500">
+          <span className="bg-green-50 text-green-700 px-3 py-1 rounded-full">🔀 สุ่มทีม</span>
+          <span className="bg-green-50 text-green-700 px-3 py-1 rounded-full">📋 บันทึกเกม</span>
+          <span className="bg-green-50 text-green-700 px-3 py-1 rounded-full">💰 คำนวณค่าใช้จ่าย</span>
+          <span className="bg-green-50 text-green-700 px-3 py-1 rounded-full">📲 QR PromptPay รายคน</span>
+        </div>
+        <p className="text-gray-400 text-xs">ไม่ต้องนั่งคิดค่าใช้จ่ายเอง</p>
       </div>
 
       {mode === 'idle' && (
