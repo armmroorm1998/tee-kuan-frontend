@@ -21,25 +21,36 @@ interface OwnerContextValue {
 
 const OwnerContext = createContext<OwnerContextValue | null>(null);
 
+const SESSION_FLAG = 'hasOwner';
+
 export function OwnerProvider({ children }: { children: ReactNode }) {
+  const hasFlag =
+    typeof window !== 'undefined' && !!localStorage.getItem(SESSION_FLAG);
   const [owner, setOwner] = useState<Owner | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(hasFlag);
 
   const refresh = useCallback(async () => {
     try {
       setIsLoading(true);
       const data = await getMe();
+      localStorage.setItem(SESSION_FLAG, '1');
       setOwner(data);
     } catch {
+      localStorage.removeItem(SESSION_FLAG);
       setOwner(null);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  const clear = useCallback(() => setOwner(null), []);
+  const clear = useCallback(() => {
+    localStorage.removeItem(SESSION_FLAG);
+    setOwner(null);
+  }, []);
 
   useEffect(() => {
+    // Only call /me if a previous session flag exists
+    if (!localStorage.getItem(SESSION_FLAG)) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
   }, [refresh]);

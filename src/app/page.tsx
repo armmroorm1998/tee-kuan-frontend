@@ -6,7 +6,7 @@ import { bootstrap, recoverOwner, logout } from '@/lib/apiClient';
 import { LoadingPage, LoadingOverlay } from '@/components/LoadingOverlay';
 import { useOwner } from '@/context/OwnerContext';
 import toast from 'react-hot-toast';
-import { ChevronRight, BarChart2, Settings, LogOut, Feather, Copy, Check } from 'lucide-react';
+import { ChevronRight, BarChart2, Settings, LogOut, Feather, Copy, Check, BookOpen } from 'lucide-react';
 
 const inputCls = 'w-full border border-gray-300 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-green-500';
 
@@ -138,6 +138,22 @@ export default function HomePage() {
             </div>
             <ChevronRight className="w-5 h-5 text-gray-300 shrink-0" />
           </button>
+
+          <button
+            onClick={() => router.push('/how-to-use')}
+            className="w-full bg-white rounded-2xl shadow px-5 py-5 flex items-center justify-between hover:shadow-md transition text-left"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-purple-50 rounded-xl flex items-center justify-center">
+                <BookOpen className="w-6 h-6 text-purple-500" />
+              </div>
+              <div>
+                <div className="font-bold text-gray-800 text-base">วิธีใช้งาน</div>
+                <div className="text-xs text-gray-400 mt-0.5">คู่มือการใช้งานตั้งแต่ต้นจนจบ</div>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-300 shrink-0" />
+          </button>
         </div>
 
         {/* Logout */}
@@ -166,6 +182,9 @@ export default function HomePage() {
         <div className="space-y-3">
           <button onClick={() => setMode('new')} className="w-full bg-green-600 text-white rounded-2xl py-4 font-bold text-lg hover:bg-green-700 transition">เริ่มใช้งานใหม่</button>
           <button onClick={() => setMode('recover')} className="w-full border border-gray-300 text-gray-700 rounded-2xl py-4 font-semibold hover:bg-gray-50 transition">กู้คืนด้วย Recovery Key</button>
+          <button onClick={() => router.push('/how-to-use')} className="w-full flex items-center justify-center gap-2 text-purple-600 py-2 text-sm font-medium hover:text-purple-800 transition">
+            <BookOpen className="w-4 h-4" /> ดูวิธีใช้งาน
+          </button>
         </div>
       )}
 
