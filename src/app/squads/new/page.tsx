@@ -183,7 +183,7 @@ export default function NewSquadPage() {
               onKeyDown={(e) => { if (e.key === 'Enter') addPlayer(); }}
               placeholder="ชื่อผู้เล่น"
               className="flex-1 border border-gray-300 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
-              maxLength={100}
+              maxLength={20}
             />
             <button
               onClick={addPlayer}

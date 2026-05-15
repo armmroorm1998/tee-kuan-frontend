@@ -100,6 +100,9 @@ export const createGame = (
 export const getGames = (sessionId: string) =>
   api.get<Game[]>(`/sessions/${sessionId}/games`).then((r) => r.data);
 
+export const deleteGame = (sessionId: string, gameId: string) =>
+  api.delete(`/sessions/${sessionId}/games/${gameId}`);
+
 // ── Receipts ──────────────────────────────────────────────
 export const generateReceipts = (sessionId: string) =>
   api.post<Receipt[]>(`/sessions/${sessionId}/receipts/generate`).then((r) => r.data);

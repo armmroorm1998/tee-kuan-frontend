@@ -2,11 +2,12 @@
 
 import { use, useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getSession, getGames, createPlayer, createGame, closeSession, generateReceipts, getReceipts, addSessionPlayer, markReceiptPaid, markReceiptPending } from '@/lib/apiClient';
+import { getSession, getGames, createPlayer, createGame, deleteGame, closeSession, generateReceipts, getReceipts, addSessionPlayer, markReceiptPaid, markReceiptPending } from '@/lib/apiClient';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, PlusCircle, Shuffle, UserPlus, Share2 } from 'lucide-react';
+import { ChevronLeft, PlusCircle, Shuffle, UserPlus, Share2, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import Swal from 'sweetalert2';
 import type { Game, Receipt } from '@/types';
 
 function shuffleArray<T>(arr: T[]): T[] {
@@ -72,6 +73,7 @@ export default function SessionPage({ params }: Props) {
   const [showGameForm, setShowGameForm] = useState(false);
   const [courtLabel, setCourtLabel] = useState('');
   const [gamePlayerIds, setGamePlayerIds] = useState<string[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState<number | null>(null); // for manual team swap
   const [showCloseForm, setShowCloseForm] = useState(false);
   const [shuttlesUsed, setShuttlesUsed] = useState('');
   const [courtTotalOverride, setCourtTotalOverride] = useState('');
@@ -90,11 +92,17 @@ export default function SessionPage({ params }: Props) {
 
   const { data: session } = useQuery({ queryKey: ['session', sessionId], queryFn: () => getSession(squadId, sessionId) });
   const { data: games = [] } = useQuery({ queryKey: ['games', sessionId], queryFn: () => getGames(sessionId) });
-  const { data: receipts = [] } = useQuery({ queryKey: ['receipts', sessionId], queryFn: () => getReceipts(sessionId), enabled: session?.status === 'closed' });
+  const { data: receipts = [], isLoading: receiptsLoading } = useQuery({ queryKey: ['receipts', sessionId], queryFn: () => getReceipts(sessionId), enabled: session?.status === 'closed' });
 
   const addGameMut = useMutation({
     mutationFn: () => createGame(sessionId, { court_label: courtLabel || undefined, player_ids: gamePlayerIds }),
-    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['games', sessionId] }); setShowGameForm(false); setGamePlayerIds([]); setCourtLabel(''); toast.success(`เพิ่มเกมที่ ${games.length + 1} แล้ว`); },
+    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['games', sessionId] }); setShowGameForm(false); setGamePlayerIds([]); setSelectedSlot(null); setCourtLabel(''); toast.success(`เพิ่มเกมที่ ${games.length + 1} แล้ว`); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const deleteGameMut = useMutation({
+    mutationFn: (gameId: string) => deleteGame(sessionId, gameId),
+    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['games', sessionId] }); toast.success('ลบเกมส์แล้ว'); },
     onError: (e: any) => toast.error(e.message),
   });
 
@@ -152,7 +160,7 @@ export default function SessionPage({ params }: Props) {
 
   const sessionPlayers = session?.session_players ?? [];
 
-  if (!session) {
+  if (!session || (session.status === 'closed' && receiptsLoading)) {
     return (
       <div className="max-w-lg mx-auto flex flex-col min-h-[calc(100dvh-57px)]">
         {/* Skeleton header */}
@@ -194,6 +202,7 @@ export default function SessionPage({ params }: Props) {
       {(closeMut.isPending || generateReceiptsMut.isPending) && <LoadingOverlay label="กำลังปิด Session..." />}
       {addGameMut.isPending && <LoadingOverlay label="กำลังบันทึกเกมส์..." />}
       {addPlayerMut.isPending && <LoadingOverlay label="กำลังเพิ่มผู้เล่น..." />}
+      {deleteGameMut.isPending && <LoadingOverlay label="กำลังลบเกมส์..." />}
       {/* Sticky header */}
       <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100 bg-white sticky top-0 z-10">
         <button onClick={() => router.push(`/squads/${squadId}`)} className="p-1 -ml-1 text-gray-500 hover:text-gray-800 transition">
@@ -230,7 +239,7 @@ export default function SessionPage({ params }: Props) {
                 onKeyDown={(e) => { if (e.key === 'Enter' && newPlayerName.trim()) addPlayerMut.mutate(newPlayerName); }}
                 placeholder="ชื่อผู้เล่น"
                 className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
-                maxLength={100}
+                maxLength={20}
                 autoFocus
               />
               <button
@@ -298,6 +307,7 @@ export default function SessionPage({ params }: Props) {
                   const result = buildShuffledTeams(livePlayers, games);
                   if (!result) { toast.error('ผู้เล่น Live ไม่ถึง 4 คน'); return; }
                   setGamePlayerIds(result);
+                  setSelectedSlot(null);
                 }}
                 className="flex items-center gap-1 text-purple-600 text-sm font-semibold hover:text-purple-800 transition"
               >
@@ -316,6 +326,50 @@ export default function SessionPage({ params }: Props) {
                 ))}
               </div>
             </div>
+
+            {/* Team assignment UI — shows when 4 players selected */}
+            {gamePlayerIds.length === 4 && (
+              <div className="border border-gray-100 rounded-xl p-3 space-y-2">
+                <p className="text-xs text-gray-500 font-medium">จัดทีม — แตะ 2 คนเพื่อสลับตำแหน่ง{selectedSlot !== null ? ' (เลือกแล้ว ✓ แตะคนที่ 2 เพื่อสลับ)' : ''}</p>
+                {(['A', 'B'] as const).map((team, ti) => {
+                  const slots = ti === 0 ? [0, 1] : [2, 3];
+                  const colors = ti === 0
+                    ? { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', sel: 'ring-2 ring-blue-400' }
+                    : { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', sel: 'ring-2 ring-red-400' };
+                  return (
+                    <div key={team} className="flex items-center gap-2">
+                      <span className={`text-xs font-bold w-8 shrink-0 ${colors.text}`}>ทีม {team}</span>
+                      {slots.map((slotIdx) => {
+                        const pid = gamePlayerIds[slotIdx];
+                        const name = sessionPlayers.find((sp) => sp.player_id === pid)?.player?.name ?? '?';
+                        const isSelected = selectedSlot === slotIdx;
+                        return (
+                          <button
+                            key={slotIdx}
+                            onClick={() => {
+                              if (selectedSlot === null) {
+                                setSelectedSlot(slotIdx);
+                              } else if (selectedSlot === slotIdx) {
+                                setSelectedSlot(null);
+                              } else {
+                                // swap
+                                const next = [...gamePlayerIds];
+                                [next[selectedSlot], next[slotIdx]] = [next[slotIdx], next[selectedSlot]];
+                                setGamePlayerIds(next);
+                                setSelectedSlot(null);
+                              }
+                            }}
+                            className={`flex-1 text-xs font-medium px-2 py-1.5 rounded-lg border transition ${colors.bg} ${colors.text} ${colors.border} ${isSelected ? colors.sel : ''}`}
+                          >
+                            {name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {gamePlayerIds.length > 0 && gamePlayerIds.length !== 4 && (
               <p className="text-xs text-amber-600">เลือกผู้เล่นให้ครบ 4 คน (เลือกแล้ว {gamePlayerIds.length} คน)</p>
             )}
@@ -323,7 +377,7 @@ export default function SessionPage({ params }: Props) {
               <button onClick={() => addGameMut.mutate()} disabled={gamePlayerIds.length !== 4 || addGameMut.isPending} className="flex-1 bg-green-600 text-white rounded-xl py-2 text-sm font-semibold disabled:opacity-50 hover:bg-green-700 transition">
                 {addGameMut.isPending ? 'กำลังบันทึก...' : 'บันทึกเกมส์'}
               </button>
-              <button onClick={() => { setShowGameForm(false); setGamePlayerIds([]); }} className="flex-1 border border-gray-300 rounded-xl py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
+              <button onClick={() => { setShowGameForm(false); setGamePlayerIds([]); setSelectedSlot(null); }} className="flex-1 border border-gray-300 rounded-xl py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
             </div>
           </div>
         )}
@@ -336,6 +390,26 @@ export default function SessionPage({ params }: Props) {
             <div key={g.id} className="bg-white rounded-2xl shadow px-5 py-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="font-medium text-gray-700 text-sm">เกมส์ {g.game_number}{g.court_label ? ` · ${g.court_label}` : ''}</span>
+                {!isClosed && (
+                  <button
+                    onClick={async () => {
+                      const result = await Swal.fire({
+                        title: `ลบเกมส์ ${g.game_number}?`,
+                        text: 'การลบไม่สามารถย้อนกลับได้',
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonColor: '#ef4444',
+                        cancelButtonColor: '#6b7280',
+                        confirmButtonText: 'ลบเลย',
+                        cancelButtonText: 'ยกเลิก',
+                      });
+                      if (result.isConfirmed) deleteGameMut.mutate(g.id);
+                    }}
+                    className="text-red-400 hover:text-red-600 transition p-1"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex-1 flex flex-col gap-1">

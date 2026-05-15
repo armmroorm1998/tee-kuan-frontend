@@ -112,7 +112,7 @@ export default function SquadDetailPage({ params }: Props) {
                   onKeyDown={(e) => e.key === 'Enter' && playerName.trim() && addPlayerMut.mutate()}
                   placeholder="ชื่อผู้เล่น"
                   className="flex-1 border border-gray-300 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                  maxLength={100}
+                  maxLength={20}
                   autoFocus
                 />
                 <button onClick={() => addPlayerMut.mutate()} disabled={!playerName.trim() || addPlayerMut.isPending} className="bg-green-600 text-white rounded-xl px-4 text-base font-semibold disabled:opacity-50 hover:bg-green-700 transition">เพิ่ม</button>
