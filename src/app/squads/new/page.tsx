@@ -8,9 +8,19 @@ import toast from 'react-hot-toast';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { ChevronLeft, X } from 'lucide-react';
 import type { BillingMode, CourtSplitMode, ShuttlePricingMode } from '@/types';
-import { CustomSelect } from '@/components/CustomSelect';
-
 const inputCls = 'w-full border border-gray-300 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white';
+
+type SplitPreset = 'equal' | 'per_game_all' | 'per_game_court_equal';
+const SPLIT_PRESETS: { value: SplitPreset; label: string; desc: string }[] = [
+  { value: 'equal', label: 'หารเท่ากัน', desc: 'ทุกคนจ่ายเท่ากัน ไม่ว่าจะเล่นกี่เกมส์' },
+  { value: 'per_game_all', label: 'หารตามเกมส์', desc: 'ทุกค่าใช้จ่ายหารตามสัดส่วนเกมส์ที่เล่น — เล่นมากจ่ายมาก' },
+  { value: 'per_game_court_equal', label: 'ค่าคอร์ตหารเท่า + ค่าลูกตามเกมส์', desc: 'ค่าคอร์ตหารเท่ากันทุกคน ค่าลูกหารตามสัดส่วนเกมส์' },
+];
+function presetToModes(preset: SplitPreset): { billing_mode: BillingMode; court_split_mode: CourtSplitMode } {
+  if (preset === 'per_game_all') return { billing_mode: 'per_game_split', court_split_mode: 'per_game' };
+  if (preset === 'per_game_court_equal') return { billing_mode: 'per_game_split', court_split_mode: 'equal' };
+  return { billing_mode: 'equal_split', court_split_mode: 'equal' };
+}
 
 export default function NewSquadPage() {
   const router = useRouter();
@@ -38,8 +48,7 @@ export default function NewSquadPage() {
   const removePlayer = (index: number) => {
     setPlayers((prev) => prev.filter((_, i) => i !== index));
   };
-  const [billingMode, setBillingMode] = useState<BillingMode>('equal_split');
-  const [courtMode, setCourtMode] = useState<CourtSplitMode>('equal');
+  const [splitPreset, setSplitPreset] = useState<SplitPreset>('equal');
   const [shuttleMode, setShuttleMode] = useState<ShuttlePricingMode>('per_shuttle');
   const [shuttlePrice, setShuttlePrice] = useState('');
   const [tubPrice, setTubPrice] = useState('');
@@ -49,10 +58,11 @@ export default function NewSquadPage() {
     if (!squadName.trim()) return;
     setSubmitting(true);
     try {
+      const { billing_mode, court_split_mode } = presetToModes(splitPreset);
       const squad = await createSquad({
         name: squadName.trim(),
-        default_billing_mode: billingMode,
-        default_court_split_mode: courtMode,
+        default_billing_mode: billing_mode,
+        default_court_split_mode: court_split_mode,
       });
 
       const playerResults = await Promise.all(
@@ -60,8 +70,8 @@ export default function NewSquadPage() {
       );
 
       const session = await createSession(squad.id, {
-        billing_mode: billingMode,
-        court_split_mode: courtMode,
+        billing_mode: billing_mode,
+        court_split_mode: court_split_mode,
         shuttle_pricing_mode: shuttleMode,
         shuttle_price_per_item: shuttleMode === 'per_shuttle' && shuttlePrice ? Number(shuttlePrice) : undefined,
         shuttle_price_per_tube: shuttleMode === 'per_tube' && tubPrice ? Number(tubPrice) : undefined,
@@ -107,29 +117,21 @@ export default function NewSquadPage() {
         {/* Divider */}
         <div className="border-t border-gray-100" />
 
-        {/* 2 & 3. Court mode + Billing mode — same row */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm font-semibold text-gray-700 block mb-2">กำหนดค่าสนาม</label>
-            <CustomSelect
-              value={courtMode}
-              onChange={(v) => setCourtMode(v as CourtSplitMode)}
-              options={[
-                { value: 'equal', label: 'หารเท่ากัน' },
-                { value: 'per_game', label: 'หารตามเกมส์' },
-              ]}
-            />
-          </div>
-          <div>
-            <label className="text-sm font-semibold text-gray-700 block mb-2">โหมดการคิดเงิน</label>
-            <CustomSelect
-              value={billingMode}
-              onChange={(v) => setBillingMode(v as BillingMode)}
-              options={[
-                { value: 'equal_split', label: 'หารเท่ากัน' },
-                { value: 'per_game_split', label: 'หารตามเกมส์' },
-              ]}
-            />
+        {/* วิธีแบ่งค่าใช้จ่าย */}
+        <div>
+          <label className="text-sm font-semibold text-gray-700 block mb-3">วิธีแบ่งค่าใช้จ่าย</label>
+          <div className="space-y-2">
+            {SPLIT_PRESETS.map((p) => (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => setSplitPreset(p.value)}
+                className={`w-full text-left px-4 py-3 rounded-xl border-2 transition ${splitPreset === p.value ? 'border-green-500 bg-green-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+              >
+                <div className={`text-sm font-semibold ${splitPreset === p.value ? 'text-green-700' : 'text-gray-700'}`}>{p.label}</div>
+                <div className="text-xs text-gray-400 mt-0.5">{p.desc}</div>
+              </button>
+            ))}
           </div>
         </div>
 

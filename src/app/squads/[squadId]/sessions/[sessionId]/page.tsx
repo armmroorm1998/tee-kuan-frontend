@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronLeft, PlusCircle, Shuffle, UserPlus, Share2, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Swal from 'sweetalert2';
-import type { Game, Receipt } from '@/types';
+import type { Game, Receipt, Session } from '@/types';
 
 function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -464,7 +464,7 @@ export default function SessionPage({ params }: Props) {
 
       {/* Receipts */}
       {isClosed && receipts.length > 0 && (
-        <ReceiptSection receipts={receipts} sessionId={sessionId} games={games} />
+        <ReceiptSection receipts={receipts} sessionId={sessionId} games={games} session={session} />
       )}
       </div>
     </div>
@@ -493,7 +493,7 @@ async function shareReceipt(playerName: string, amount: number, base64: string |
   }
 }
 
-function ReceiptSection({ receipts, sessionId, games }: { receipts: Receipt[]; sessionId: string; games: Game[] }) {
+function ReceiptSection({ receipts, sessionId, games, session }: { receipts: Receipt[]; sessionId: string; games: Game[]; session: Session }) {
   const qc = useQueryClient();
 
   const gamesPlayedMap = useMemo(() => {
@@ -529,6 +529,27 @@ function ReceiptSection({ receipts, sessionId, games }: { receipts: Receipt[]; s
         <button onClick={() => regenMut.mutate()} disabled={regenMut.isPending} className="text-xs text-gray-400 hover:text-green-600">
           {regenMut.isPending ? 'กำลังออก QR...' : '↻ ออก QR ใหม่'}
         </button>
+      </div>
+      {/* สรุปค่าใช้จ่าย */}
+      <div className="bg-gray-50 rounded-xl px-4 py-3 text-sm space-y-1">
+        <div className="flex justify-between text-gray-600">
+          <span>ลูกแบดที่ใช้</span>
+          <span className="font-medium text-gray-800">{session.shuttles_used} ลูก</span>
+        </div>
+        <div className="flex justify-between text-gray-600">
+          <span>ค่าคอร์ต</span>
+          <span className="font-medium text-gray-800">฿{Number(session.court_total).toFixed(2)}</span>
+        </div>
+        {Number(session.extra_total) > 0 && (
+          <div className="flex justify-between text-gray-600">
+            <span>ค่าอื่นๆ</span>
+            <span className="font-medium text-gray-800">฿{Number(session.extra_total).toFixed(2)}</span>
+          </div>
+        )}
+        <div className="flex justify-between font-semibold text-gray-800 pt-1 border-t border-gray-200">
+          <span>รวมทั้งหมด</span>
+          <span>฿{receipts.reduce((sum, r) => sum + Number(r.amount_due), 0).toFixed(2)}</span>
+        </div>
       </div>
       {receipts.map((r) => (
         <div key={r.id} className="bg-white rounded-2xl shadow p-5 space-y-3">

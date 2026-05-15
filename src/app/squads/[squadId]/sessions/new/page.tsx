@@ -14,6 +14,23 @@ interface Props { params: Promise<{ squadId: string }> }
 
 const inputCls = 'w-full border border-gray-300 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white';
 
+type SplitPreset = 'equal' | 'per_game_all' | 'per_game_court_equal';
+const SPLIT_PRESETS: { value: SplitPreset; label: string; desc: string }[] = [
+  { value: 'equal', label: 'หารเท่ากัน', desc: 'ทุกคนจ่ายเท่ากัน ไม่ว่าจะเล่นกี่เกมส์' },
+  { value: 'per_game_all', label: 'หารตามเกมส์', desc: 'ทุกค่าใช้จ่ายหารตามสัดส่วนเกมส์ที่เล่น — เล่นมากจ่ายมาก' },
+  { value: 'per_game_court_equal', label: 'ค่าคอร์ตหารเท่า + ค่าลูกตามเกมส์', desc: 'ค่าคอร์ตหารเท่ากันทุกคน ค่าลูกหารตามสัดส่วนเกมส์' },
+];
+function presetToModes(preset: SplitPreset): { billing_mode: BillingMode; court_split_mode: CourtSplitMode } {
+  if (preset === 'per_game_all') return { billing_mode: 'per_game_split', court_split_mode: 'per_game' };
+  if (preset === 'per_game_court_equal') return { billing_mode: 'per_game_split', court_split_mode: 'equal' };
+  return { billing_mode: 'equal_split', court_split_mode: 'equal' };
+}
+function modesToPreset(billingMode: BillingMode, courtMode: CourtSplitMode): SplitPreset {
+  if (billingMode === 'per_game_split' && courtMode === 'per_game') return 'per_game_all';
+  if (billingMode === 'per_game_split' && courtMode === 'equal') return 'per_game_court_equal';
+  return 'equal';
+}
+
 export default function NewSessionPage({ params }: Props) {
   const { squadId } = use(params);
   const router = useRouter();
@@ -24,8 +41,7 @@ export default function NewSessionPage({ params }: Props) {
   const [tubPrice, setTubPrice] = useState('');
   const [shuttlesPerTub, setShuttlesPerTub] = useState('12');
   const [selectedIds, setSelectedIds] = useState<string[] | null>(null); // null = not yet initialized
-  const [billingMode, setBillingMode] = useState<BillingMode | null>(null);
-  const [courtMode, setCourtMode] = useState<CourtSplitMode | null>(null);
+  const [splitPreset, setSplitPreset] = useState<SplitPreset | null>(null);
 
   const { data: squad } = useQuery({ queryKey: ['squad', squadId], queryFn: () => getSquad(squadId) });
   const { data: players = [], isSuccess } = useQuery({
@@ -41,12 +57,11 @@ export default function NewSessionPage({ params }: Props) {
     setSelectedIds(activePlayers.map((p) => p.id));
   }
 
-  // Init billing/court mode from squad defaults once loaded
-  if (squad && billingMode === null) setBillingMode(squad.default_billing_mode);
-  if (squad && courtMode === null) setCourtMode(squad.default_court_split_mode);
+  // Init split preset from squad defaults once loaded
+  if (squad && splitPreset === null) setSplitPreset(modesToPreset(squad.default_billing_mode, squad.default_court_split_mode));
 
-  const effectiveBillingMode: BillingMode = billingMode ?? 'equal_split';
-  const effectiveCourtMode: CourtSplitMode = courtMode ?? 'equal';
+  const effectivePreset: SplitPreset = splitPreset ?? 'equal';
+  const { billing_mode: effectiveBillingMode, court_split_mode: effectiveCourtMode } = presetToModes(effectivePreset);
 
   const togglePlayer = (id: string) => {
     setSelectedIds((prev) =>
@@ -92,29 +107,21 @@ export default function NewSessionPage({ params }: Props) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6 pb-32">
-        {/* Court mode + Billing mode */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm font-semibold text-gray-700 block mb-2">กำหนดค่าสนาม</label>
-            <CustomSelect
-              value={effectiveCourtMode}
-              onChange={(v) => setCourtMode(v as CourtSplitMode)}
-              options={[
-                { value: 'equal', label: 'หารเท่ากัน' },
-                { value: 'per_game', label: 'หารตามเกมส์' },
-              ]}
-            />
-          </div>
-          <div>
-            <label className="text-sm font-semibold text-gray-700 block mb-2">โหมดการคิดเงิน</label>
-            <CustomSelect
-              value={effectiveBillingMode}
-              onChange={(v) => setBillingMode(v as BillingMode)}
-              options={[
-                { value: 'equal_split', label: 'หารเท่ากัน' },
-                { value: 'per_game_split', label: 'หารตามเกมส์' },
-              ]}
-            />
+        {/* วิธีแบ่งค่าใช้จ่าย */}
+        <div>
+          <label className="text-sm font-semibold text-gray-700 block mb-3">วิธีแบ่งค่าใช้จ่าย</label>
+          <div className="space-y-2">
+            {SPLIT_PRESETS.map((p) => (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => setSplitPreset(p.value)}
+                className={`w-full text-left px-4 py-3 rounded-xl border-2 transition ${effectivePreset === p.value ? 'border-green-500 bg-green-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+              >
+                <div className={`text-sm font-semibold ${effectivePreset === p.value ? 'text-green-700' : 'text-gray-700'}`}>{p.label}</div>
+                <div className="text-xs text-gray-400 mt-0.5">{p.desc}</div>
+              </button>
+            ))}
           </div>
         </div>
 
