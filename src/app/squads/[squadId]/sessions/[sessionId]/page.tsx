@@ -3,7 +3,7 @@
 import { use, useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSession, getGames, createPlayer, createGame, closeSession, generateReceipts, getReceipts, addSessionPlayer, markReceiptPaid, markReceiptPending } from '@/lib/apiClient';
-import { LoadingPage, LoadingOverlay } from '@/components/LoadingOverlay';
+import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, PlusCircle, Shuffle, UserPlus, Share2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -94,7 +94,7 @@ export default function SessionPage({ params }: Props) {
 
   const addGameMut = useMutation({
     mutationFn: () => createGame(sessionId, { court_label: courtLabel || undefined, player_ids: gamePlayerIds }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['games', sessionId] }); setShowGameForm(false); setGamePlayerIds([]); setCourtLabel(''); toast.success(`เพิ่มเกมที่ ${games.length + 1} แล้ว`); },
+    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['games', sessionId] }); setShowGameForm(false); setGamePlayerIds([]); setCourtLabel(''); toast.success(`เพิ่มเกมที่ ${games.length + 1} แล้ว`); },
     onError: (e: any) => toast.error(e.message),
   });
 
@@ -138,6 +138,8 @@ export default function SessionPage({ params }: Props) {
         next.delete(playerId);
       } else {
         next.add(playerId);
+        // ผู้เล่นกลับแล้ว ต้องเอาออกจากรายการที่สุ่มเกมส์ไว้ด้วย
+        setGamePlayerIds((ids) => ids.filter((id) => id !== playerId));
       }
       localStorage.setItem(leftKey, JSON.stringify([...next]));
       return next;
@@ -150,7 +152,37 @@ export default function SessionPage({ params }: Props) {
 
   const sessionPlayers = session?.session_players ?? [];
 
-  if (!session) return <LoadingPage />;
+  if (!session) {
+    return (
+      <div className="max-w-lg mx-auto flex flex-col min-h-[calc(100dvh-57px)]">
+        {/* Skeleton header */}
+        <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100 bg-white sticky top-0 z-10">
+          <button onClick={() => router.push(`/squads/${squadId}`)} className="p-1 -ml-1 text-gray-500 hover:text-gray-800 transition">
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+          <div className="flex-1 space-y-1.5 animate-pulse">
+            <div className="h-4 bg-gray-200 rounded w-2/5" />
+            <div className="h-3 bg-gray-100 rounded w-3/5" />
+          </div>
+          <div className="h-6 w-16 bg-gray-100 rounded-full animate-pulse" />
+        </div>
+        {/* Skeleton content */}
+        <div className="flex-1 px-4 py-6 space-y-4 animate-pulse">
+          <div className="bg-white rounded-2xl shadow px-5 py-4 space-y-2">
+            <div className="h-3 bg-gray-200 rounded w-1/3" />
+            <div className="h-4 bg-gray-100 rounded w-1/2" />
+            <div className="h-4 bg-gray-100 rounded w-2/5" />
+          </div>
+          {[...Array(2)].map((_, i) => (
+            <div key={i} className="bg-white rounded-2xl shadow px-5 py-4 space-y-2">
+              <div className="h-3 bg-gray-200 rounded w-1/4" />
+              <div className="h-8 bg-gray-100 rounded" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   const isClosed = session.status === 'closed';
   const shuttlePriceLabel = session.shuttle_pricing_mode === 'per_shuttle'

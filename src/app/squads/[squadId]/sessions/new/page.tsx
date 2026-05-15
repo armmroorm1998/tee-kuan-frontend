@@ -7,7 +7,7 @@ import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
-import type { ShuttlePricingMode } from '@/types';
+import type { BillingMode, CourtSplitMode, ShuttlePricingMode } from '@/types';
 import { CustomSelect } from '@/components/CustomSelect';
 
 interface Props { params: Promise<{ squadId: string }> }
@@ -24,6 +24,8 @@ export default function NewSessionPage({ params }: Props) {
   const [tubPrice, setTubPrice] = useState('');
   const [shuttlesPerTub, setShuttlesPerTub] = useState('12');
   const [selectedIds, setSelectedIds] = useState<string[] | null>(null); // null = not yet initialized
+  const [billingMode, setBillingMode] = useState<BillingMode | null>(null);
+  const [courtMode, setCourtMode] = useState<CourtSplitMode | null>(null);
 
   const { data: squad } = useQuery({ queryKey: ['squad', squadId], queryFn: () => getSquad(squadId) });
   const { data: players = [], isSuccess } = useQuery({
@@ -39,6 +41,13 @@ export default function NewSessionPage({ params }: Props) {
     setSelectedIds(activePlayers.map((p) => p.id));
   }
 
+  // Init billing/court mode from squad defaults once loaded
+  if (squad && billingMode === null) setBillingMode(squad.default_billing_mode);
+  if (squad && courtMode === null) setCourtMode(squad.default_court_split_mode);
+
+  const effectiveBillingMode: BillingMode = billingMode ?? 'equal_split';
+  const effectiveCourtMode: CourtSplitMode = courtMode ?? 'equal';
+
   const togglePlayer = (id: string) => {
     setSelectedIds((prev) =>
       (prev ?? []).includes(id) ? (prev ?? []).filter((p) => p !== id) : [...(prev ?? []), id]
@@ -50,8 +59,8 @@ export default function NewSessionPage({ params }: Props) {
     setSubmitting(true);
     try {
       const session = await createSession(squadId, {
-        billing_mode: squad.default_billing_mode,
-        court_split_mode: squad.default_court_split_mode,
+        billing_mode: effectiveBillingMode,
+        court_split_mode: effectiveCourtMode,
         shuttle_pricing_mode: shuttleMode,
         shuttle_price_per_item: shuttleMode === 'per_shuttle' && shuttlePrice ? Number(shuttlePrice) : undefined,
         shuttle_price_per_tube: shuttleMode === 'per_tube' && tubPrice ? Number(tubPrice) : undefined,
@@ -83,6 +92,34 @@ export default function NewSessionPage({ params }: Props) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6 pb-32">
+        {/* Court mode + Billing mode */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-sm font-semibold text-gray-700 block mb-2">กำหนดค่าสนาม</label>
+            <CustomSelect
+              value={effectiveCourtMode}
+              onChange={(v) => setCourtMode(v as CourtSplitMode)}
+              options={[
+                { value: 'equal', label: 'หารเท่ากัน' },
+                { value: 'per_game', label: 'หารตามเกมส์' },
+              ]}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-semibold text-gray-700 block mb-2">โหมดการคิดเงิน</label>
+            <CustomSelect
+              value={effectiveBillingMode}
+              onChange={(v) => setBillingMode(v as BillingMode)}
+              options={[
+                { value: 'equal_split', label: 'หารเท่ากัน' },
+                { value: 'per_game_split', label: 'หารตามเกมส์' },
+              ]}
+            />
+          </div>
+        </div>
+
+        <div className="border-t border-gray-100" />
+
         <div>
           <label className="text-sm font-semibold text-gray-700 block mb-2">การคิดค่าลูก</label>
           <CustomSelect
