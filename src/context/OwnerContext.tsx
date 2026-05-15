@@ -25,7 +25,7 @@ const SESSION_FLAG = 'hasOwner';
 
 export function OwnerProvider({ children }: { children: ReactNode }) {
   const [owner, setOwner] = useState<Owner | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     try {
@@ -48,7 +48,10 @@ export function OwnerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Only call /me if a previous session flag exists (client-only, after hydration)
-    if (!localStorage.getItem(SESSION_FLAG)) return;
+    if (!localStorage.getItem(SESSION_FLAG)) {
+      setIsLoading(false);
+      return;
+    }
     refresh();
   }, [refresh]);
 
