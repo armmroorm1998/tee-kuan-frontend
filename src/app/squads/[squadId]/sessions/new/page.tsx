@@ -12,7 +12,8 @@ import { CustomSelect } from '@/components/CustomSelect';
 
 interface Props { params: Promise<{ squadId: string }> }
 
-const inputCls = 'w-full border border-gray-300 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white';
+const fieldCls = (hasError?: boolean) =>
+  `w-full border ${hasError ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-green-500'} rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 bg-white`;
 
 type SplitPreset = 'equal' | 'per_game_all' | 'per_game_court_equal';
 const SPLIT_PRESETS: { value: SplitPreset; label: string; desc: string }[] = [
@@ -42,6 +43,7 @@ export default function NewSessionPage({ params }: Props) {
   const [shuttlesPerTub, setShuttlesPerTub] = useState('12');
   const [selectedIds, setSelectedIds] = useState<string[] | null>(null); // null = not yet initialized
   const [splitPreset, setSplitPreset] = useState<SplitPreset | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const { data: squad } = useQuery({ queryKey: ['squad', squadId], queryFn: () => getSquad(squadId) });
   const { data: players = [], isSuccess } = useQuery({
@@ -71,6 +73,15 @@ export default function NewSessionPage({ params }: Props) {
 
   const handleSubmit = async () => {
     if (!squad) return;
+    const errs: Record<string, string> = {};
+    if (shuttleMode === 'per_shuttle' && (!shuttlePrice || Number(shuttlePrice) <= 0))
+      errs.shuttlePrice = 'กรุณากรอกราคาต่อลูก (ต้องมากกว่า 0)';
+    if (shuttleMode === 'per_tube' && (!tubPrice || Number(tubPrice) <= 0))
+      errs.tubPrice = 'กรุณากรอกราคาต่อหลอด (ต้องมากกว่า 0)';
+    if (shuttleMode === 'per_tube' && (!shuttlesPerTub || Number(shuttlesPerTub) < 1))
+      errs.shuttlesPerTub = 'กรุณากรอกจำนวนลูกต่อหลอด (อย่างน้อย 1)';
+    if (Object.keys(errs).length > 0) { setErrors(errs); return; }
+    setErrors({});
     setSubmitting(true);
     try {
       const session = await createSession(squadId, {
@@ -141,8 +152,9 @@ export default function NewSessionPage({ params }: Props) {
 
         {shuttleMode === 'per_shuttle' && (
           <div>
-            <label className="text-sm font-semibold text-gray-700 block mb-2">ราคาต่อลูก (บาท)</label>
-            <input type="number" value={shuttlePrice} onChange={(e) => setShuttlePrice(e.target.value)} placeholder="เช่น 25" className={inputCls} min="0" />
+            <label className="text-sm font-semibold text-gray-700 block mb-2">ราคาต่อลูก (บาท) *</label>
+            <input type="number" value={shuttlePrice} onChange={(e) => { setShuttlePrice(e.target.value); if (errors.shuttlePrice) setErrors((prev) => ({ ...prev, shuttlePrice: '' })); }} placeholder="เช่น 25" className={fieldCls(!!errors.shuttlePrice)} min="0" />
+            {errors.shuttlePrice && <p className="text-xs text-red-500 mt-1">{errors.shuttlePrice}</p>}
           </div>
         )}
 
@@ -150,11 +162,13 @@ export default function NewSessionPage({ params }: Props) {
           <>
             <div>
               <label className="text-sm font-semibold text-gray-700 block mb-2">ราคาต่อหลอด (บาท)</label>
-              <input type="number" value={tubPrice} onChange={(e) => setTubPrice(e.target.value)} placeholder="เช่น 300" className={inputCls} min="0" />
+              <input type="number" value={tubPrice} onChange={(e) => { setTubPrice(e.target.value); if (errors.tubPrice) setErrors((prev) => ({ ...prev, tubPrice: '' })); }} placeholder="เช่น 300" className={fieldCls(!!errors.tubPrice)} min="0" />
+              {errors.tubPrice && <p className="text-xs text-red-500 mt-1">{errors.tubPrice}</p>}
             </div>
             <div>
               <label className="text-sm font-semibold text-gray-700 block mb-2">จำนวนลูกต่อหลอด</label>
-              <input type="number" value={shuttlesPerTub} onChange={(e) => setShuttlesPerTub(e.target.value)} placeholder="12" className={inputCls} min="1" />
+              <input type="number" value={shuttlesPerTub} onChange={(e) => { setShuttlesPerTub(e.target.value); if (errors.shuttlesPerTub) setErrors((prev) => ({ ...prev, shuttlesPerTub: '' })); }} placeholder="12" className={fieldCls(!!errors.shuttlesPerTub)} min="1" />
+              {errors.shuttlesPerTub && <p className="text-xs text-red-500 mt-1">{errors.shuttlesPerTub}</p>}
             </div>
           </>
         )}

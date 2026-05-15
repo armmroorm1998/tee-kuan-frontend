@@ -2,10 +2,12 @@
 
 import { use, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getSquad, getPlayers, createPlayer, deactivatePlayer, getSessions } from '@/lib/apiClient';
+import { getSquad, getPlayers, createPlayer, deactivatePlayer, getSessions, deleteSession } from '@/lib/apiClient';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, ChevronRight, UserMinus, Calendar, Plus, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, UserMinus, Calendar, Plus, X, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import Swal from 'sweetalert2';
+import { LoadingOverlay } from '@/components/LoadingOverlay';
 
 interface Props { params: Promise<{ squadId: string }> }
 
@@ -16,6 +18,7 @@ export default function SquadDetailPage({ params }: Props) {
   const [tab, setTab] = useState<'sessions' | 'players'>('sessions');
   const [showPlayerForm, setShowPlayerForm] = useState(false);
   const [playerName, setPlayerName] = useState('');
+  const [isDeletingSession, setIsDeletingSession] = useState(false);
 
   const { data: squad } = useQuery({ queryKey: ['squad', squadId], queryFn: () => getSquad(squadId) });
   const { data: players = [] } = useQuery({ queryKey: ['players', squadId], queryFn: () => getPlayers(squadId) });
@@ -38,10 +41,37 @@ export default function SquadDetailPage({ params }: Props) {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const deleteSessionMut = useMutation({
+    mutationFn: (sessionId: string) => deleteSession(squadId, sessionId),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const handleDeleteSession = async (sessionId: string, label: string) => {
+    const result = await Swal.fire({
+      title: `ลบ session "${label}"?`,
+      text: 'ข้อมูลทั้งหมด (เกมส์, ใบเสร็จ) จะถูกลบถาวร',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#dc2626',
+      cancelButtonText: 'ยกเลิก',
+      confirmButtonText: 'ลบถาวร',
+    });
+    if (!result.isConfirmed) return;
+    setIsDeletingSession(true);
+    try {
+      await deleteSessionMut.mutateAsync(sessionId);
+      await qc.invalidateQueries({ queryKey: ['sessions', squadId] });
+      toast.success('ลบ session แล้ว');
+    } finally {
+      setIsDeletingSession(false);
+    }
+  };
+
   const activePlayers = players.filter((p) => p.is_active);
 
   return (
     <div className="max-w-lg mx-auto flex flex-col min-h-[calc(100dvh-57px)]">
+      {isDeletingSession && <LoadingOverlay label="กำลังลบ session..." />}
       {/* Header */}
       <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100 bg-white sticky top-0 z-10">
         <button onClick={() => router.push('/squads')} className="p-1 -ml-1 text-gray-500 hover:text-gray-800 transition">
@@ -86,18 +116,28 @@ export default function SquadDetailPage({ params }: Props) {
             </div>
           ) : (
             sessions.map((s) => (
-              <button key={s.id} onClick={() => router.push(`/squads/${squadId}/sessions/${s.id}`)}
-                className="w-full bg-white rounded-2xl shadow px-5 py-4 flex items-center justify-between hover:shadow-md transition text-left">
-                <div>
+              <div key={s.id} className="w-full bg-white rounded-2xl shadow px-5 py-4 flex items-center justify-between hover:shadow-md transition">
+                <button
+                  onClick={() => router.push(`/squads/${squadId}/sessions/${s.id}`)}
+                  className="flex-1 text-left"
+                >
                   <div className="font-semibold text-gray-800">{s.title ?? new Date(s.created_at).toLocaleDateString('th-TH')}</div>
                   <div className="mt-0.5">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${s.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                       {s.status === 'active' ? 'กำลังเล่น' : 'จบแล้ว'}
                     </span>
                   </div>
+                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleDeleteSession(s.id, s.title ?? new Date(s.created_at).toLocaleDateString('th-TH'))}
+                    className="p-2 text-red-400 hover:text-red-600 transition"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                  <ChevronRight className="w-5 h-5 text-gray-300" />
                 </div>
-                <ChevronRight className="w-5 h-5 text-gray-300" />
-              </button>
+              </div>
             ))
           )
         )}

@@ -45,6 +45,9 @@ export const getSquads = () =>
 export const getSquad = (id: string) =>
   api.get<Squad>(`/squads/${id}`).then((r) => r.data);
 
+export const deleteSquad = (id: string) =>
+  api.delete(`/squads/${id}`).then((r) => r.data);
+
 // ── Players ───────────────────────────────────────────────
 export const createPlayer = (squadId: string, data: { name: string; note?: string }) =>
   api.post<Player>(`/squads/${squadId}/players`, data).then((r) => r.data);
@@ -86,6 +89,9 @@ export const closeSession = (
   api
     .patch<Session>(`/squads/${squadId}/sessions/${sessionId}/close`, data)
     .then((r) => r.data);
+
+export const deleteSession = (squadId: string, sessionId: string) =>
+  api.delete(`/squads/${squadId}/sessions/${sessionId}`).then((r) => r.data);
 
 // ── Session Players ───────────────────────────────────────
 export const addSessionPlayer = (sessionId: string, playerId: string) =>

@@ -1,17 +1,20 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { getSquads } from '@/lib/apiClient';
-import { LoadingPage } from '@/components/LoadingOverlay';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getSquads, deleteSquad } from '@/lib/apiClient';
+import { LoadingPage, LoadingOverlay } from '@/components/LoadingOverlay';
 import { useOwner } from '@/context/OwnerContext';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Users, Plus } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ChevronLeft, ChevronRight, Users, Plus, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import Swal from 'sweetalert2';
 
 export default function SquadsPage() {
   const { owner, isIdentified, isLoading: ownerLoading } = useOwner();
   const router = useRouter();
+  const qc = useQueryClient();
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (!ownerLoading && !isIdentified) router.replace('/');
@@ -23,6 +26,32 @@ export default function SquadsPage() {
     enabled: isIdentified,
   });
 
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deleteSquad(id),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const handleDelete = async (id: string, name: string) => {
+    const result = await Swal.fire({
+      title: `ลบก๊วน "${name}"?`,
+      text: 'ข้อมูลทั้งหมดใน session และผู้เล่นจะถูกลบถาวร',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#dc2626',
+      cancelButtonText: 'ยกเลิก',
+      confirmButtonText: 'ลบถาวร',
+    });
+    if (!result.isConfirmed) return;
+    setIsDeleting(true);
+    try {
+      await deleteMut.mutateAsync(id);
+      await qc.invalidateQueries({ queryKey: ['squads'] });
+      toast.success('ลบก๊วนแล้ว');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   if (ownerLoading || isLoading) {
     return <LoadingPage />;
   }
@@ -30,6 +59,7 @@ export default function SquadsPage() {
 
   return (
     <div className="max-w-lg mx-auto flex flex-col min-h-dvh">
+      {isDeleting && <LoadingOverlay label="กำลังลบก๊วน..." />}
       {/* Header */}
       <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100 bg-white sticky top-0 z-10">
         <button onClick={() => router.push('/')} className="p-1 -ml-1 text-gray-500 hover:text-gray-800 transition">
@@ -49,19 +79,26 @@ export default function SquadsPage() {
       ) : (
         <div className="space-y-3">
           {squads.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => router.push(`/squads/${s.id}`)}
-              className="w-full bg-white rounded-2xl shadow px-5 py-4 flex items-center justify-between hover:shadow-md transition text-left"
-            >
-              <div>
+            <div key={s.id} className="w-full bg-white rounded-2xl shadow px-5 py-4 flex items-center justify-between hover:shadow-md transition">
+              <button
+                onClick={() => router.push(`/squads/${s.id}`)}
+                className="flex-1 text-left"
+              >
                 <div className="font-semibold text-gray-800">{s.name}</div>
                 <div className="text-xs text-gray-400 mt-0.5">
                   {s.default_billing_mode === 'equal_split' ? 'หารเท่ากัน' : 'หารตามเกมส์'}
                 </div>
+              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleDelete(s.id, s.name)}
+                  className="p-2 text-red-400 hover:text-red-600 transition"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+                <ChevronRight className="w-5 h-5 text-gray-300" />
               </div>
-              <ChevronRight className="w-5 h-5 text-gray-300" />
-            </button>
+            </div>
           ))}
         </div>
       )}

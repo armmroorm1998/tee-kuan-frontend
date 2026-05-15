@@ -8,7 +8,8 @@ import toast from 'react-hot-toast';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { ChevronLeft, X } from 'lucide-react';
 import type { BillingMode, CourtSplitMode, ShuttlePricingMode } from '@/types';
-const inputCls = 'w-full border border-gray-300 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white';
+const fieldCls = (hasError?: boolean) =>
+  `w-full border ${hasError ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-green-500'} rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 bg-white`;
 
 type SplitPreset = 'equal' | 'per_game_all' | 'per_game_court_equal';
 const SPLIT_PRESETS: { value: SplitPreset; label: string; desc: string }[] = [
@@ -53,9 +54,19 @@ export default function NewSquadPage() {
   const [shuttlePrice, setShuttlePrice] = useState('');
   const [tubPrice, setTubPrice] = useState('');
   const [shuttlesPerTub, setShuttlesPerTub] = useState('12');
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = async () => {
-    if (!squadName.trim()) return;
+    const errs: Record<string, string> = {};
+    if (!squadName.trim()) errs.squadName = 'กรุณากรอกชื่อก๊วน';
+    if (shuttleMode === 'per_shuttle' && (!shuttlePrice || Number(shuttlePrice) <= 0))
+      errs.shuttlePrice = 'กรุณากรอกราคาต่อลูก (ต้องมากกว่า 0)';
+    if (shuttleMode === 'per_tube' && (!tubPrice || Number(tubPrice) <= 0))
+      errs.tubPrice = 'กรุณากรอกราคาต่อหลอด (ต้องมากกว่า 0)';
+    if (shuttleMode === 'per_tube' && (!shuttlesPerTub || Number(shuttlesPerTub) < 1))
+      errs.shuttlesPerTub = 'กรุณากรอกจำนวนลูกต่อหลอด (อย่างน้อย 1)';
+    if (Object.keys(errs).length > 0) { setErrors(errs); return; }
+    setErrors({});
     setSubmitting(true);
     try {
       const { billing_mode, court_split_mode } = presetToModes(splitPreset);
@@ -106,12 +117,13 @@ export default function NewSquadPage() {
           <label className="text-sm font-semibold text-gray-700 block mb-2">ชื่อก๊วน *</label>
           <input
             value={squadName}
-            onChange={(e) => setSquadName(e.target.value)}
+            onChange={(e) => { setSquadName(e.target.value); if (errors.squadName) setErrors((prev) => ({ ...prev, squadName: '' })); }}
             placeholder="เช่น ก๊วนวันศุกร์"
-            className={inputCls}
+            className={fieldCls(!!errors.squadName)}
             maxLength={100}
             autoFocus
           />
+          {errors.squadName && <p className="text-xs text-red-500 mt-1">{errors.squadName}</p>}
         </div>
 
         {/* Divider */}
@@ -138,7 +150,7 @@ export default function NewSquadPage() {
         {/* 4. Shuttle pricing */}
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-4">
-            <label className="text-sm font-semibold text-gray-700 shrink-0">ตั้งค่าการเงิน</label>
+            <label className="text-sm font-semibold text-gray-700 shrink-0">ตั้งค่าการเงิน *</label>
             <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
               <button
                 onClick={() => setShuttleMode('per_shuttle')}
@@ -156,13 +168,22 @@ export default function NewSquadPage() {
           </div>
 
           {shuttleMode === 'per_shuttle' && (
-            <input type="number" value={shuttlePrice} onChange={(e) => setShuttlePrice(e.target.value)} placeholder="ราคาต่อลูก (บาท)" className={inputCls} min="0" />
+            <div>
+              <input type="number" value={shuttlePrice} onChange={(e) => { setShuttlePrice(e.target.value); if (errors.shuttlePrice) setErrors((prev) => ({ ...prev, shuttlePrice: '' })); }} placeholder="ราคาต่อลูก (บาท)" className={fieldCls(!!errors.shuttlePrice)} min="0" />
+              {errors.shuttlePrice && <p className="text-xs text-red-500 mt-1">{errors.shuttlePrice}</p>}
+            </div>
           )}
 
           {shuttleMode === 'per_tube' && (
             <div className="space-y-3">
-              <input type="number" value={tubPrice} onChange={(e) => setTubPrice(e.target.value)} placeholder="ราคาต่อหลอด (บาท)" className={inputCls} min="0" />
-              <input type="number" value={shuttlesPerTub} onChange={(e) => setShuttlesPerTub(e.target.value)} placeholder="จำนวนลูกต่อหลอด" className={inputCls} min="1" />
+              <div>
+                <input type="number" value={tubPrice} onChange={(e) => { setTubPrice(e.target.value); if (errors.tubPrice) setErrors((prev) => ({ ...prev, tubPrice: '' })); }} placeholder="ราคาต่อหลอด (บาท)" className={fieldCls(!!errors.tubPrice)} min="0" />
+                {errors.tubPrice && <p className="text-xs text-red-500 mt-1">{errors.tubPrice}</p>}
+              </div>
+              <div>
+                <input type="number" value={shuttlesPerTub} onChange={(e) => { setShuttlesPerTub(e.target.value); if (errors.shuttlesPerTub) setErrors((prev) => ({ ...prev, shuttlesPerTub: '' })); }} placeholder="จำนวนลูกต่อหลอด" className={fieldCls(!!errors.shuttlesPerTub)} min="1" />
+                {errors.shuttlesPerTub && <p className="text-xs text-red-500 mt-1">{errors.shuttlesPerTub}</p>}
+              </div>
               {tubPrice && Number(shuttlesPerTub) > 0 && (
                 <p className="text-xs text-gray-500">
                   {tubPrice} / {shuttlesPerTub} = <span className="font-semibold text-green-600">{(Number(tubPrice) / Number(shuttlesPerTub)).toFixed(2)} บาท/ลูก</span>

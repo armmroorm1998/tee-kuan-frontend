@@ -89,6 +89,9 @@ export default function SessionPage({ params }: Props) {
   });
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [newPlayerName, setNewPlayerName] = useState('');
+  const [isAddingPlayer, setIsAddingPlayer] = useState(false);
+  const [isAddingGame, setIsAddingGame] = useState(false);
+  const [isDeletingGame, setIsDeletingGame] = useState(false);
 
   const { data: session } = useQuery({ queryKey: ['session', sessionId], queryFn: () => getSession(squadId, sessionId) });
   const { data: games = [] } = useQuery({ queryKey: ['games', sessionId], queryFn: () => getGames(sessionId) });
@@ -96,13 +99,11 @@ export default function SessionPage({ params }: Props) {
 
   const addGameMut = useMutation({
     mutationFn: () => createGame(sessionId, { court_label: courtLabel || undefined, player_ids: gamePlayerIds }),
-    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['games', sessionId] }); setShowGameForm(false); setGamePlayerIds([]); setSelectedSlot(null); setCourtLabel(''); toast.success(`เพิ่มเกมที่ ${games.length + 1} แล้ว`); },
     onError: (e: any) => toast.error(e.message),
   });
 
   const deleteGameMut = useMutation({
     mutationFn: (gameId: string) => deleteGame(sessionId, gameId),
-    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['games', sessionId] }); toast.success('ลบเกมส์แล้ว'); },
     onError: (e: any) => toast.error(e.message),
   });
 
@@ -130,14 +131,62 @@ export default function SessionPage({ params }: Props) {
       const player = await createPlayer(squadId, { name: name.trim() });
       await addSessionPlayer(sessionId, player.id);
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['session', sessionId] });
-      qc.invalidateQueries({ queryKey: ['players', squadId] });
-      setNewPlayerName('');
-      toast.success('เพิ่มผู้เล่นแล้ว');
-    },
     onError: (e: any) => toast.error(e.message),
   });
+
+  const handleAddPlayer = async (name: string) => {
+    if (!name.trim()) return;
+    setIsAddingPlayer(true);
+    try {
+      await addPlayerMut.mutateAsync(name);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['session', sessionId] }),
+        qc.invalidateQueries({ queryKey: ['players', squadId] }),
+      ]);
+      setNewPlayerName('');
+      toast.success('เพิ่มผู้เล่นแล้ว');
+    } catch { /* handled in onError */ } finally {
+      setIsAddingPlayer(false);
+    }
+  };
+
+  const handleAddGame = async () => {
+    const gameNum = games.length + 1;
+    setIsAddingGame(true);
+    try {
+      await addGameMut.mutateAsync();
+      await qc.invalidateQueries({ queryKey: ['games', sessionId] });
+      setShowGameForm(false);
+      setGamePlayerIds([]);
+      setSelectedSlot(null);
+      setCourtLabel('');
+      toast.success(`เพิ่มเกมที่ ${gameNum} แล้ว`);
+    } catch { /* handled in onError */ } finally {
+      setIsAddingGame(false);
+    }
+  };
+
+  const handleDeleteGame = async (gameId: string, gameNumber: number) => {
+    const result = await Swal.fire({
+      title: `ลบเกมส์ ${gameNumber}?`,
+      text: 'การลบไม่สามารถย้อนกลับได้',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'ลบเลย',
+      cancelButtonText: 'ยกเลิก',
+    });
+    if (!result.isConfirmed) return;
+    setIsDeletingGame(true);
+    try {
+      await deleteGameMut.mutateAsync(gameId);
+      await qc.invalidateQueries({ queryKey: ['games', sessionId] });
+      toast.success('ลบเกมส์แล้ว');
+    } catch { /* handled in onError */ } finally {
+      setIsDeletingGame(false);
+    }
+  };
 
   const toggleLeft = (playerId: string) => {
     setLeftPlayerIds((prev) => {
@@ -200,9 +249,9 @@ export default function SessionPage({ params }: Props) {
   return (
     <div className="max-w-lg mx-auto flex flex-col min-h-[calc(100dvh-57px)]">
       {(closeMut.isPending || generateReceiptsMut.isPending) && <LoadingOverlay label="กำลังปิด Session..." />}
-      {addGameMut.isPending && <LoadingOverlay label="กำลังบันทึกเกมส์..." />}
-      {addPlayerMut.isPending && <LoadingOverlay label="กำลังเพิ่มผู้เล่น..." />}
-      {deleteGameMut.isPending && <LoadingOverlay label="กำลังลบเกมส์..." />}
+      {isAddingGame && <LoadingOverlay label="กำลังบันทึกเกมส์..." />}
+      {isAddingPlayer && <LoadingOverlay label="กำลังเพิ่มผู้เล่น..." />}
+      {isDeletingGame && <LoadingOverlay label="กำลังลบเกมส์..." />}
       {/* Sticky header */}
       <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100 bg-white sticky top-0 z-10">
         <button onClick={() => router.push(`/squads/${squadId}`)} className="p-1 -ml-1 text-gray-500 hover:text-gray-800 transition">
@@ -236,18 +285,18 @@ export default function SessionPage({ params }: Props) {
               <input
                 value={newPlayerName}
                 onChange={(e) => setNewPlayerName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && newPlayerName.trim()) addPlayerMut.mutate(newPlayerName); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && newPlayerName.trim()) handleAddPlayer(newPlayerName); }}
                 placeholder="ชื่อผู้เล่น"
                 className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
                 maxLength={20}
                 autoFocus
               />
               <button
-                onClick={() => addPlayerMut.mutate(newPlayerName)}
-                disabled={!newPlayerName.trim() || addPlayerMut.isPending}
+                onClick={() => handleAddPlayer(newPlayerName)}
+                disabled={!newPlayerName.trim() || isAddingPlayer}
                 className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-40 transition"
               >
-                {addPlayerMut.isPending ? '...' : 'เพิ่ม'}
+                {isAddingPlayer ? '...' : 'เพิ่ม'}
               </button>
             </div>
           </div>
@@ -374,8 +423,8 @@ export default function SessionPage({ params }: Props) {
               <p className="text-xs text-amber-600">เลือกผู้เล่นให้ครบ 4 คน (เลือกแล้ว {gamePlayerIds.length} คน)</p>
             )}
             <div className="flex gap-2">
-              <button onClick={() => addGameMut.mutate()} disabled={gamePlayerIds.length !== 4 || addGameMut.isPending} className="flex-1 bg-green-600 text-white rounded-xl py-2 text-sm font-semibold disabled:opacity-50 hover:bg-green-700 transition">
-                {addGameMut.isPending ? 'กำลังบันทึก...' : 'บันทึกเกมส์'}
+              <button onClick={handleAddGame} disabled={gamePlayerIds.length !== 4 || isAddingGame} className="flex-1 bg-green-600 text-white rounded-xl py-2 text-sm font-semibold disabled:opacity-50 hover:bg-green-700 transition">
+                {isAddingGame ? 'กำลังบันทึก...' : 'บันทึกเกมส์'}
               </button>
               <button onClick={() => { setShowGameForm(false); setGamePlayerIds([]); setSelectedSlot(null); }} className="flex-1 border border-gray-300 rounded-xl py-2 text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
             </div>
@@ -392,19 +441,7 @@ export default function SessionPage({ params }: Props) {
                 <span className="font-medium text-gray-700 text-sm">เกมส์ {g.game_number}{g.court_label ? ` · ${g.court_label}` : ''}</span>
                 {!isClosed && (
                   <button
-                    onClick={async () => {
-                      const result = await Swal.fire({
-                        title: `ลบเกมส์ ${g.game_number}?`,
-                        text: 'การลบไม่สามารถย้อนกลับได้',
-                        icon: 'warning',
-                        showCancelButton: true,
-                        confirmButtonColor: '#ef4444',
-                        cancelButtonColor: '#6b7280',
-                        confirmButtonText: 'ลบเลย',
-                        cancelButtonText: 'ยกเลิก',
-                      });
-                      if (result.isConfirmed) deleteGameMut.mutate(g.id);
-                    }}
+                    onClick={() => handleDeleteGame(g.id, g.game_number)}
                     className="text-red-400 hover:text-red-600 transition p-1"
                   >
                     <Trash2 className="w-4 h-4" />
